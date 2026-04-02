@@ -1,0 +1,585 @@
+\documentclass[11pt, letterpaper]{article}
+\usepackage[margin=0.9in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{fontspec}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{mdframed}
+\usepackage{tabularx}
+
+% Colors
+\definecolor{warmaccent}{HTML}{D4956A}
+\definecolor{sage}{HTML}{6AAB8E}
+\definecolor{gold}{HTML}{C9A84C}
+\definecolor{steelblue}{HTML}{6B8FBD}
+\definecolor{rose}{HTML}{C47070}
+\definecolor{lilac}{HTML}{9B89B6}
+\definecolor{muted}{HTML}{706C64}
+\definecolor{deepbg}{HTML}{F5F0EA}
+
+\setmainfont{Lato}
+
+\hypersetup{colorlinks=true, linkcolor=steelblue, urlcolor=steelblue}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{7pt}
+
+% Section formatting
+\titleformat{\section}{\Large\bfseries\color{warmaccent}}{}{0em}{}[\vspace{-4pt}\color{warmaccent}\rule{\textwidth}{0.5pt}]
+\titleformat{\subsection}{\normalsize\bfseries\color{steelblue}}{}{0em}{}
+\titleformat{\subsubsection}{\small\bfseries\color{gold}}{}{0em}{}
+
+% Custom environments
+\newmdenv[
+  backgroundcolor=deepbg,
+  linewidth=0pt,
+  innertopmargin=10pt,
+  innerbottommargin=10pt,
+  innerleftmargin=12pt,
+  innerrightmargin=12pt,
+  roundcorner=4pt
+]{deepdive}
+
+\newmdenv[
+  linecolor=rose,
+  linewidth=1.5pt,
+  topline=false,
+  rightline=false,
+  bottomline=false,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  innerleftmargin=12pt,
+  innerrightmargin=8pt
+]{qabox}
+
+% Header/Footer
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small\color{muted}Adam Presentation Script + Q\&A Prep}
+\rhead{\small\color{muted}MATH 3850}
+\cfoot{\small\color{muted}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\begin{document}
+
+\begin{center}
+{\LARGE\bfseries\color{warmaccent} Presentation Script + Deep Reference}\\[6pt]
+{\large Adam: A Method for Stochastic Optimization}\\[4pt]
+{\color{muted} Kingma \& Ba (ICLR 2015) \quad$\cdot$\quad MATH 3850 Project Demo}\\[4pt]
+{\color{muted} April 2, 2026 \quad$\cdot$\quad Target: 12--15 minutes}
+\end{center}
+
+\vspace{4pt}
+{\small\color{muted}\textbf{How to use this document:} The \textbf{bold section headers} are slide titles. The regular text under ``What to say'' is your spoken script. The shaded \colorbox{deepbg}{\textbf{Deep Dive}} boxes explain every concept mentioned, so you can answer any follow-up question. The {\color{rose}\textbf{Q\&A Prep}} sidebars list likely professor questions with answers.}
+
+\vspace{8pt}
+
+%% ============================================================
+\section{Slide 0: Title \textnormal{\color{muted}[$\sim$0:30]}}
+%% ============================================================
+
+\subsection{What to say}
+
+Hi everyone. For our project we chose to reproduce some of the key results from the Adam optimizer paper by Kingma and Ba, published at ICLR 2015. Adam is an extension of gradient descent that we learned in class. Instead of using one fixed $\alpha$ (step-size) or doing a line search, Adam gives each parameter its own adaptive step size based on how the gradients have been behaving. We implemented Adam and four comparison optimizers completely from scratch using just NumPy, then ran five experiments. Lets walk through it.
+
+\begin{deepdive}
+\subsubsection{What is ICLR?}
+International Conference on Learning Representations. One of the top three machine learning venues (alongside NeurIPS and ICML). The Adam paper was published there in 2015 and has over 180,000 citations, making it one of the most cited papers in all of computer science.
+
+\subsubsection{What does ``from scratch'' mean here?}
+We did not use PyTorchs or TensorFlows built-in optimizer classes. Every line of the optimization algorithm is our own NumPy code. The only library we use is NumPy for array math and scikit-learn for loading the MNIST dataset. We \textit{did} use PyTorch in one experiment, but only to validate that our code produces the same output as their implementation.
+
+\subsubsection{Who are Kingma and Ba?}
+Diederik P. Kingma (University of Amsterdam / OpenAI) and Jimmy Lei Ba (University of Toronto). Kingma is also known for the Variational Autoencoder (VAE). Ba later co-authored Layer Normalization.
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: Why did you choose Adam over the other proposals?}\\
+A: High feasibility. The entire algorithm is about 10 lines of code (Algorithm 1 on page 2), the paper is only 9 pages, the experiments are clearly described with MNIST which is easy to get, and it connects directly to the gradient descent and quasi-Newton methods we learned in class.
+\end{qabox}
+
+
+%% ============================================================
+\section{Slide 1: The Problem \textnormal{\color{muted}[$\sim$1:00]}}
+%% ============================================================
+
+\subsection{What to say}
+
+In class we spent the first half of the semester on gradient descent, and we ran into two big problems with it. First, gradient descent uses one single $\alpha$ (step-size) for every parameter. If the curvature is very different in different directions, which we measured with $\kappa$ (the condition number), then GD zigzags back and forth across the narrow direction and barely makes progress along the wide direction. We saw this on Assignment 1.
+
+Second, in machine learning we dont even have the real gradient. We compute it on a random minibatch of 128 images out of 60,000, so $g_t$ (the gradient estimate) is noisy. That makes the zigzag even worse.
+
+And the fancier methods we learned, like Newtons method and BFGS, dont help because they need an $n \times n$ matrix which is way too expensive with lots of parameters.
+
+\subsection{Reading the diagram}
+On the left of the slide you see contour ellipses representing a stretched-out objective function. The red zigzag path is gradient descent bouncing back and forth. On the right, the same contours but with a smooth green path: thats Adam, which adapts each parameter individually and goes directly to the center.
+
+\begin{deepdive}
+\subsubsection{What is a condition number $\kappa$?}
+The condition number of a matrix (or of the Hessian at a point) measures how ``stretched'' the landscape is. Formally, $\kappa = \lambda_{\max} / \lambda_{\min}$, the ratio of the largest to smallest eigenvalue of the Hessian. If $\kappa = 1$ the contours are circular (all directions are equally steep). If $\kappa = 2500$ the contours are very elongated ellipses; one direction is 2500 times steeper than another.
+
+\subsubsection{Why does high $\kappa$ cause zigzagging?}
+With a single step-size $\alpha$, the step is too big for the steep direction (causing overshoot) and too small for the gentle direction (causing slow progress). The result is a zigzag pattern that oscillates across the narrow axis. Theorem 3.4 in Nocedal \& Wright gives the convergence rate as $\frac{\kappa - 1}{\kappa + 1}$. For $\kappa = 2500$: $\frac{2499}{2501} \approx 0.999$, so each step only reduces the error by 0.1\%. You would need thousands of steps.
+
+\subsubsection{What is a minibatch and why is the gradient noisy?}
+In machine learning training, you have a huge dataset (e.g., 60,000 images). Computing the gradient on \textit{all} 60,000 samples each step is expensive. Instead, you randomly pick a small subset (a ``minibatch,'' typically 128 samples) and compute the gradient on just those. The resulting gradient $g_t$ is an unbiased estimate of the true gradient (meaning its correct \textit{on average}), but any single estimate is noisy because it only sees 128 out of 60,000 examples. Over many steps the noise averages out, but individual steps can point in suboptimal directions.
+
+\subsubsection{Why cant we use Newtons method or BFGS?}
+Newtons method requires computing and inverting the Hessian matrix, which is $n \times n$ where $n$ is the number of parameters. For our logistic regression model, $n = 7{,}850$ which gives a $7{,}850 \times 7{,}850$ matrix with 61 million entries, needing $O(n^2)$ memory and $O(n^3)$ time to invert. For deep learning with millions of parameters, this is completely impossible. BFGS avoids computing the Hessian directly but still stores an $n \times n$ approximation matrix, so it has the same $O(n^2)$ memory problem.
+
+\subsubsection{What is a line search?}
+A line search is a sub-procedure we learned in class (Chapter 3) for choosing $\alpha$ at each step. Given a descent direction $p_k$, you search along that direction to find a good step size. The \textbf{Armijo condition} checks ``did the function decrease enough?'' The \textbf{Wolfe conditions} add ``is the slope still steep enough that we should go further?'' \textbf{Backtracking} starts with a big $\alpha$, then keeps halving it until Armijo is satisfied. Adam eliminates the need for line search entirely because it adapts $\alpha$ per-parameter automatically.
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: What convergence rate did we learn for gradient descent?}\\
+A: From Theorem 3.4: $\frac{\kappa - 1}{\kappa + 1}$ per step for steepest descent on a quadratic. For $\kappa = 2500$: $\approx 0.999$ per step (0.1\% error reduction). For $\kappa = 1$ (perfect conditioning): rate = 0, meaning one-step convergence.
+
+\textbf{Q: Doesnt L-BFGS solve the memory problem?}\\
+A: Yes, L-BFGS (limited-memory BFGS) uses $O(mn)$ memory where $m$ is small (5--20). But L-BFGS was designed for deterministic (exact gradient) optimization. It doesnt handle the stochastic/noisy gradients of machine learning well. Adam handles both the memory and noise problems simultaneously.
+\end{qabox}
+
+
+%% ============================================================
+\section{Slide 2: The Idea \textnormal{\color{muted}[$\sim$1:00]}}
+%% ============================================================
+
+\subsection{What to say}
+
+Adam combines two ideas that each solve one of those problems. The first is momentum: instead of using the raw noisy gradient, we keep a running average of where the gradient has been pointing. This is called an exponential moving average or EMA:
+$$m_t = \beta_1 \cdot m_{t-1} + (1 - \beta_1) \cdot g_t$$
+With $\beta_1$ (momentum decay rate) set to 0.9, we keep 90\% of the old direction and mix in 10\% of the new gradient $g_t$ (the current gradient). This smooths out the noise.
+
+The second ingredient is adaptive learning rates. We track how volatile each parameter is by keeping a running average of the squared gradients:
+$$v_t = \beta_2 \cdot v_{t-1} + (1 - \beta_2) \cdot g_t^2$$
+Parameters with huge gradients get divided by a large number, so they take smaller steps. Parameters with tiny gradients take bigger steps. $\beta_2$ (scale decay rate) is 0.999, a very slow-moving average.
+
+Theres also bias correction because both $m_t$ (momentum) and $v_t$ (scale) start at zero, making the first few estimates too small. The correction: $\hat{m}_t = m_t / (1 - \beta_1^t)$ and $\hat{v}_t = v_t / (1 - \beta_2^t)$.
+
+\subsection{Reading the timeline}
+The SVG shows a horizontal timeline from GD (Cauchy, 1847) through Momentum (Polyak, 1964), AdaGrad (Duchi, 2011), RMSProp (Hinton, 2012), to Adam (Kingma \& Ba, 2015). A bracket labeled ``momentum idea'' spans GD to Momentum. A bracket labeled ``adaptive idea'' spans AdaGrad to RMSProp. Adam at the end combines both.
+
+\begin{deepdive}
+\subsubsection{What is an exponential moving average (EMA)?}
+A running average that weights recent values more heavily than old ones. Formula: $\text{EMA}_t = \beta \cdot \text{EMA}_{t-1} + (1 - \beta) \cdot x_t$. With $\beta = 0.9$: the value from 1 step ago has weight $0.9^1 = 0.9$. The value from 10 steps ago has weight $0.9^{10} \approx 0.35$. The value from 50 steps ago has weight $0.9^{50} \approx 0.005$. So old information is gradually ``forgotten.'' This is much better than a simple average (which gives equal weight to values from 1000 steps ago that are no longer relevant).
+
+\subsubsection{What exactly is $m_t$ (momentum / first moment)?}
+$m_t$ is a vector the same size as the parameter vector $\theta$. Each entry $m_t^{(i)}$ is the EMA of the gradient for parameter $i$. It estimates the \textit{mean} (first moment) of the gradient distribution. If parameter $i$s gradient consistently points in one direction, $m_t^{(i)}$ builds up in that direction (momentum). If the gradient fluctuates randomly, the positive and negative values cancel out and $m_t^{(i)}$ stays small.
+
+\subsubsection{What exactly is $v_t$ (scale / second moment)?}
+$v_t$ is also a vector the same size as $\theta$. Each entry $v_t^{(i)}$ is the EMA of the \textit{squared} gradient for parameter $i$. It estimates the \textit{uncentered variance} (second moment). If parameter $i$ has large gradients (positive or negative), $v_t^{(i)}$ will be large. Dividing by $\sqrt{v_t^{(i)}}$ then shrinks the step for that parameter. If parameter $i$ has tiny gradients, $v_t^{(i)}$ is small, and dividing by $\sqrt{v_t^{(i)}}$ amplifies the step.
+
+\subsubsection{Why ``element-wise'' squared, not a matrix?}
+$g_t^2$ means each entry of $g_t$ is squared individually. This is NOT a matrix product $g_t g_t^T$ (which would give an $n \times n$ matrix). Keeping everything element-wise is what lets Adam use only $O(n)$ memory. The trade-off is that we only capture per-parameter scaling, not cross-parameter correlations (which is what the full Hessian or BFGS captures).
+
+\subsubsection{Why does bias correction matter?}
+Both $m_t$ and $v_t$ are initialized to zero vectors. At $t = 1$:
+$$m_1 = 0.9 \cdot 0 + 0.1 \cdot g_1 = 0.1 \cdot g_1$$
+This is 10$\times$ too small! Without correction, Adam would take a tiny step on iteration 1 because $m_1$ is artificially close to zero. The correction $\hat{m}_1 = 0.1 \cdot g_1 / (1 - 0.9^1) = 0.1 \cdot g_1 / 0.1 = g_1$ fixes it exactly. As $t$ grows, $\beta_1^t \to 0$, so $(1 - \beta_1^t) \to 1$, and the correction vanishes. For $\beta_1 = 0.9$, the correction is negligible after about 20 steps. For $\beta_2 = 0.999$, it takes about 200 steps.
+
+\subsubsection{What is AdaGrad and why was it replaced?}
+AdaGrad (Duchi et al., 2011) accumulates ALL squared gradients ever seen: $G_t = G_{t-1} + g_t^2$. Then $\theta_{t+1} = \theta_t - (\alpha / \sqrt{G_t + \epsilon}) \cdot g_t$. Problem: $G_t$ only ever grows, so eventually every parameter has a tiny step size and learning stops completely. RMSProp fixes this by using an EMA instead of a sum, so old information gets forgotten and the step size can recover.
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: Why is it called ``first moment'' and ``second moment''?}\\
+A: In statistics, the first moment of a distribution is its mean ($E[X]$), and the second moment is $E[X^2]$ (related to variance). $m_t$ estimates $E[g_t]$ (the mean gradient) and $v_t$ estimates $E[g_t^2]$ (the mean squared gradient). The name ``Adam'' stands for ``Adaptive Moment Estimation.''
+
+\textbf{Q: How is Adam different from RMSProp?}\\
+A: Adam = RMSProp + Momentum + Bias Correction. RMSProp only has the adaptive scaling ($v_t$), no momentum ($m_t$), and no bias correction. In practice, the momentum and bias correction give Adam a small edge, especially in the early training iterations.
+\end{qabox}
+
+
+%% ============================================================
+\section{Slide 3: The Algorithm \textnormal{\color{muted}[$\sim$1:30]}}
+%% ============================================================
+
+\subsection{What to say}
+
+This is the actual algorithm from page 2 of the paper. We start by initializing $m_0$ (momentum) and $v_0$ (scale) both to zero vectors, and set the timestep $t$ to zero. Thats the gold-bordered initialization section.
+
+Then every iteration, in the green-bordered loop section: increment $t$, compute the gradient $g_t$ on a random minibatch, update momentum $m_t$ using the EMA formula with $\beta_1$ (momentum decay rate) at 0.9 by default, update scale $v_t$ with the EMA of squared gradients using $\beta_2$ (scale decay rate) at 0.999, then bias correct to get $\hat{m}_t$ (corrected momentum) and $\hat{v}_t$ (corrected scale).
+
+Line 8 is the actual update. We subtract $\alpha$ (step-size) times the corrected momentum divided by the square root of the corrected scale plus $\epsilon$ (numerical safety). The direction comes from the momentum, and the per-parameter scaling comes from dividing by the square root of $v$-hat. The paper shows that the effective step size is approximately bounded by $\alpha$, which they call the trust region property. That means Adam rarely takes dangerously large steps.
+
+\begin{deepdive}
+\subsubsection{Line-by-line reference}
+\begin{tabularx}{\textwidth}{c l X}
+\textbf{Line} & \textbf{Formula} & \textbf{What it does} \\
+\hline
+1 & $m_0 = 0,\; v_0 = 0,\; t = 0$ & Zero out all history. No gradient info yet. \\
+2 & $t = t + 1$ & Bump the clock. Needed for bias correction exponents. \\
+3 & $g_t = \nabla f_t(\theta_{t-1})$ & Compute the gradient on the current minibatch. This is a stochastic estimate. \\
+4 & $m_t = \beta_1 m_{t-1} + (1-\beta_1)g_t$ & Update the momentum EMA. Direction signal. \\
+5 & $v_t = \beta_2 v_{t-1} + (1-\beta_2)g_t^2$ & Update the scale EMA. Magnitude signal. \\
+6 & $\hat{m}_t = m_t / (1 - \beta_1^t)$ & Correct the zero-init bias in momentum. \\
+7 & $\hat{v}_t = v_t / (1 - \beta_2^t)$ & Correct the zero-init bias in scale. \\
+8 & $\theta_t = \theta_{t-1} - \alpha \hat{m}_t / (\sqrt{\hat{v}_t} + \epsilon)$ & THE UPDATE. Direction from $\hat{m}_t$, magnitude from $\sqrt{\hat{v}_t}$. \\
+\end{tabularx}
+
+\subsubsection{What is the trust region property?}
+The paper shows (informally in Section 2.1) that the magnitude of the Adam step for each individual parameter is bounded approximately by $\alpha$. Specifically, $|\Delta\theta_t^{(i)}| \leq \alpha$ (when the gradient is non-zero). This is because $|\hat{m}_t^{(i)}| / \sqrt{\hat{v}_t^{(i)}}$ is bounded by 1 in many typical cases (the numerator is a smoothed gradient, the denominator is the root of a smoothed squared gradient). This means Adam self-regulates: it wont take a wildly large step even if the gradient spikes, unlike plain GD where a gradient spike directly causes a huge step.
+
+\subsubsection{What does $\epsilon$ (epsilon) actually do?}
+$\epsilon = 10^{-8}$ is a tiny number added to $\sqrt{\hat{v}_t}$ to prevent division by zero. If a parameter has received zero gradients so far, $\hat{v}_t = 0$ and without $\epsilon$ we would divide by zero. In practice $\epsilon$ is so small that it only matters when gradients are extremely tiny.
+
+\subsubsection{What are the default hyperparameters and why?}
+$\alpha = 0.001$: small enough to be stable, large enough to make progress. $\beta_1 = 0.9$: keeps 90\% of old momentum, meaning the effective window is about $1/(1-0.9) = 10$ recent gradients. $\beta_2 = 0.999$: keeps 99.9\% of old scale, meaning the window is about $1/(1-0.999) = 1000$ recent gradients. The scale estimate needs a longer window because squared gradients are noisier. $\epsilon = 10^{-8}$: just prevents division by zero.
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: How many operations per iteration?}\\
+A: $O(n)$ per iteration where $n$ is the number of parameters. We do 4 element-wise vector operations (two EMAs, two divisions for bias correction) plus the final update. No matrices involved. Memory is also $O(n)$: we store $m_t$ and $v_t$, each of size $n$.
+
+\textbf{Q: Does the timestep $t$ ever reset between epochs?}\\
+A: No. $t$ is a global counter that increments every minibatch iteration across all epochs. This is critical for bias correction. If we reset $t$ each epoch, the bias correction would over-correct at the start of every epoch.
+\end{qabox}
+
+
+%% ============================================================
+\section{Slide 4: Data Flow \textnormal{\color{muted}[$\sim$0:45]}}
+%% ============================================================
+
+\subsection{What to say}
+
+Heres how all the pieces connect visually. The gradient $g_t$ comes in and splits into two paths. The top path goes through momentum, then bias correction, to get $\hat{m}_t$ (corrected momentum). The bottom path squares the gradient, runs the scale EMA, then bias corrects to get $\hat{v}_t$ (corrected scale). Both paths recombine in the update. We divide corrected momentum by the square root of corrected scale, multiply by $\alpha$ (step-size), and subtract from the parameters. The direction comes from the top path and the per-parameter scaling from the bottom path.
+
+This is similar to what BFGS does with the inverse Hessian $H_k^{-1}$, but Adam only needs $O(n)$ memory instead of $O(n^2)$.
+
+\subsection{Reading the diagram}
+The SVG shows 6 boxes connected by arrows flowing left to right. Red box: ``Gradient $g_t$'' on the left. It forks upward to a purple box ``Momentum'' and downward to a red box ``Scale.'' Both feed into yellow ``Bias Correct'' boxes. Both corrected values feed into a green ``Update'' box on the right. The labels on the split paths say ``direction'' (top) and ``magnitude'' (bottom).
+
+\begin{deepdive}
+\subsubsection{How is this related to BFGS from class?}
+In BFGS, the search direction is $p_k = -H_k^{-1} \nabla f(x_k)$, where $H_k^{-1}$ is an $n \times n$ inverse Hessian approximation. This matrix captures both per-parameter scaling AND cross-parameter correlations. Adams update direction $\hat{m}_t / \sqrt{\hat{v}_t}$ can be seen as a \textit{diagonal} approximation: each parameter gets its own scale factor $1/\sqrt{\hat{v}_t^{(i)}}$, but we ignore correlations between different parameters. The trade-off: we lose cross-parameter info but gain massive memory savings ($O(n)$ vs $O(n^2)$).
+
+\subsubsection{What does ``direction'' vs ``magnitude'' mean concretely?}
+Consider parameter $i$. If recent gradients for parameter $i$ have been consistently positive (say averaging +5), then $\hat{m}_t^{(i)} \approx +5$ (strong positive direction). Meanwhile $\hat{v}_t^{(i)} \approx 25$ (the squared magnitude), so $\sqrt{\hat{v}_t^{(i)}} \approx 5$. The ratio is $+5/5 = +1$. If instead the gradient is consistently +0.1, then $\hat{m}_t^{(i)} \approx 0.1$ and $\sqrt{\hat{v}_t^{(i)}} \approx 0.1$, giving ratio $0.1/0.1 = 1$. Both cases give roughly the same magnitude update! This is the normalizing effect: the scale cancels out, and the step size ends up close to $\alpha$ regardless of gradient magnitude.
+\end{deepdive}
+
+
+%% ============================================================
+\section{Slide 5: From Paper to Code \textnormal{\color{muted}[$\sim$1:30]}}
+%% ============================================================
+
+\subsection{What to say}
+
+On the left is our Adam class, written entirely from scratch in NumPy, no deep learning frameworks. Each line of code is annotated with the corresponding line number from Algorithm 1 in the paper, so you can see the direct mapping.
+
+The constructor (\texttt{\_\_init\_\_}) stores the four hyperparameters: \texttt{lr} is $\alpha$ (step-size) at 0.001; \texttt{beta1} is $\beta_1$ (momentum decay) at 0.9; \texttt{beta2} is $\beta_2$ (scale decay) at 0.999; and \texttt{eps} is $\epsilon$ (numerical safety) at $10^{-8}$. It also creates two vectors, \texttt{self.m} (the momentum estimate, same size as the parameters) and \texttt{self.v} (the scale estimate), both initialized to zero. And a counter \texttt{self.t} starting at zero.
+
+The \texttt{step} method is where the actual math happens. Every time the training loop calls this: first we increment the timestep $t$. Then we update momentum $m_t$ using the EMA formula, which mixes 90\% of the old momentum with 10\% of the new gradient (line 4). Then we update the scale estimate $v_t$ by mixing 99.9\% of the old estimate with 0.1\% of the new squared gradient (line 5). Then bias correction: divide $m_t$ by $(1 - 0.9^t)$ and $v_t$ by $(1 - 0.999^t)$ to fix the zero-initialization bias (lines 6--7). Finally, the update: subtract alpha times corrected-momentum divided by the square root of corrected-scale plus epsilon (line 8). The entire optimizer is about 10 lines of real computation.
+
+On the right top is the training loop. It iterates over epochs (full passes through the data). Inside each epoch, it grabs random minibatches of 128 images, computes the gradient of the loss with respect to the weights, packs the weight gradient and bias gradient into one flat vector, and passes it to \texttt{optimizer.step}. Below that is the gradient computation function: we compute the models predictions, subtract the true labels to get the error, then multiply by the transpose of the input matrix to get the weight gradient. This is a clean closed-form matrix formula that comes from the calculus of softmax plus cross-entropy.
+
+Our code matches the paper line for line. We verified this against PyTorch in the next experiment.
+
+\begin{deepdive}
+\subsubsection{What does \texttt{flatten\_params} do?}
+Our model has two sets of parameters: $W$ (a $784 \times 10$ weight matrix) and $b$ (a length-10 bias vector). The optimizer expects a single flat vector, so \texttt{flatten\_params} concatenates $W$ (reshaped to 7840 entries) and $b$ (10 entries) into one vector of length 7850. After the optimizer updates this flat vector, \texttt{unflatten\_params} reshapes it back into $W$ and $b$.
+
+\subsubsection{How does the gradient computation work?}
+The model predicts $\hat{y} = \text{softmax}(XW + b)$. The loss is cross-entropy: $L = -\frac{1}{N}\sum_{i}\sum_{j} y_{ij} \log(\hat{y}_{ij})$. The gradient of the cross-entropy loss with respect to the pre-softmax logits turns out to be simply $dZ = \hat{y} - y_{\text{true}}$ (prediction minus truth). Then $dW = X^T \cdot dZ / N$ (chain rule through the linear layer). This elegant form is specific to the softmax + cross-entropy combination.
+
+\subsubsection{What is softmax?}
+$\text{softmax}(z_i) = e^{z_i} / \sum_j e^{z_j}$. It converts raw scores (logits) into probabilities that sum to 1. To prevent numerical overflow with large values, we subtract the max: $z_i \leftarrow z_i - \max(z)$ before exponentiating. This is mathematically equivalent but numerically stable.
+
+\subsubsection{What is cross-entropy loss?}
+$L = -\frac{1}{N}\sum_{i}\sum_{j} y_{ij}\log(\hat{y}_{ij})$ where $y$ is the one-hot true label and $\hat{y}$ is the predicted probability. It measures how surprised we are by the predictions. If we predict the correct class with probability 1.0, the loss is 0. If we predict the correct class with probability 0.01, the loss is $-\log(0.01) = 4.6$, which is large.
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: Why flatten into one vector instead of updating W and b separately?}\\
+A: Its cleaner and matches how the optimizer in the paper works. The optimizer operates on one parameter vector $\theta$. By flattening $W$ and $b$ into one vector, the Adam \texttt{step} method handles everything in one call. PyTorch does something similar internally with parameter groups.
+
+\textbf{Q: Why did you choose batch size 128?}\\
+A: Its the default in the paper (Section 6.1) and a common choice in practice. Powers of 2 are efficient for GPU memory alignment (though we run on CPU). Larger batches give less noisy gradients but fewer updates per epoch.
+\end{qabox}
+
+
+%% ============================================================
+\section{Slide 6: Experiment 1, MNIST \textnormal{\color{muted}[$\sim$1:30]}}
+%% ============================================================
+
+\subsection{What to say}
+
+Our first experiment reproduces Section 6.1 of the paper. We trained a logistic regression model on MNIST, which is 60,000 handwritten digit images. Each image is 28 by 28 pixels, and we flatten those into a single vector of 784 numbers. We want to classify each image into one of 10 digit classes (0 through 9).
+
+The model works like this: we take the 784 pixel values, multiply by a weight matrix $W$ (thats $784 \times 10$, one column per digit class) and add a bias $b$, which gives us 10 raw scores. Then we run softmax on those scores, which is just a function that converts raw scores into probabilities that add up to 1. So the output is 10 probabilities, one for each digit, and the model predicts whichever digit has the highest probability.
+
+To measure how wrong the model is, we use cross-entropy loss. In plain terms: if the true label is ``3'' and the model gives digit 3 a probability of 0.95, the loss is small (good). If the model gives digit 3 a probability of 0.01, the loss is very large (bad). Mathematically its $-\log(\text{probability of correct class})$, so higher confidence in the right answer means lower loss.
+
+Total parameters: $784 \times 10 + 10 = 7{,}850$. All five optimizers ran for 40 epochs (one epoch = one full pass through all 60,000 images) starting from the exact same random initial weights so the comparison is fair.
+
+\subsection{Reading the plot}
+The plot has two panels. Left panel: training loss on the y-axis (lower is better) versus epoch number on the x-axis, with a linear scale. Right panel: same data but the y-axis uses a log scale, which stretches out the differences at the bottom so you can see which method is actually lower. Each colored line is one optimizer.
+
+What to point out: look at the early epochs first. Adam and Momentum drop the fastest. By epoch 10 they are already well below SGD. By epoch 40, all the adaptive methods (Adam, AdaGrad, RMSProp) have converged to roughly similar loss, while plain SGD is still noticeably higher.
+
+The results table: Adam 92.69\%, AdaGrad 92.72\%, RMSProp 92.65\%, Momentum 92.36\%, SGD 91.58\%. The adaptive methods are all close because logistic regression is a convex problem (meaning theres a single best answer and every method will eventually find it; the question is just speed). The real differences show on harder non-convex problems later.
+
+Note we dont match the papers exact numbers since they used $\alpha_t = \alpha / \sqrt{t}$ learning rate decay and L2 regularization (a penalty on large weights), which we didnt include. But the relative ordering and trends match.
+
+\begin{deepdive}
+\subsubsection{What is logistic regression in this context?}
+A linear model that takes a 784-dimensional input (flattened image pixels) and outputs 10 probabilities (one per digit class) via a single matrix multiply followed by softmax: $\hat{y} = \text{softmax}(XW + b)$ where $W$ is $784 \times 10$ and $b$ is length 10. Total parameters: $784 \times 10 + 10 = 7{,}850$. This is the simplest possible classifier for MNIST.
+
+\subsubsection{What does ``convex problem'' mean?}
+A convex optimization problem has a single global minimum and no local minima. The loss surface is bowl-shaped. This means ANY method that follows the gradient will eventually reach the same optimum. Thats why all five optimizers end up with similar accuracy here; the question is just how fast they get there, not whether they do.
+
+\subsubsection{What is an epoch?}
+One full pass through all 60,000 training images. With batch size 128: $\lceil 60{,}000 / 128 \rceil = 469$ minibatch updates per epoch. Over 40 epochs thats $40 \times 469 = 18{,}760$ total optimizer steps.
+
+\subsubsection{Why are the adaptive methods all so close?}
+On convex problems like logistic regression, the landscape is a smooth bowl. Even plain GD will converge (just slowly). Adaptive methods mainly help with \textit{how fast} you get there, not with getting stuck in bad local minima (there are none). The differences between Adam, AdaGrad, and RMSProp are small because all three have adaptive per-parameter scaling; the main difference is the specific EMA vs. accumulation strategy.
+
+\subsubsection{What is L2 regularization?}
+Adding a penalty $\frac{\lambda}{2}\|W\|^2$ to the loss function that discourages large weights. The paper uses this in their MNIST experiment but we omitted it to keep our comparison simpler. This means our absolute loss values differ from the paper, but the relative ordering of optimizers should be similar.
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: Why doesnt Adam clearly win if its supposed to be the best?}\\
+A: Adams advantages show most on \textit{non-convex} problems with many parameters. Logistic regression is convex (single global min), so any decent optimizer gets close. The real separation appears in Experiment 5 with the MLP.
+
+\textbf{Q: What learning rates did you use for each optimizer?}\\
+A: SGD: 0.01, Momentum: 0.01 with $\beta = 0.9$, AdaGrad: 0.1, RMSProp: 0.001 with $\beta = 0.9$, Adam: 0.001 with $\beta_1 = 0.9, \beta_2 = 0.999$. These are the standard defaults from the respective papers.
+\end{qabox}
+
+
+%% ============================================================
+\section{Slide 7: Experiment 2, PyTorch Validation \textnormal{\color{muted}[$\sim$1:00]}}
+%% ============================================================
+
+\subsection{What to say}
+
+Before trusting any results, we validated our implementation against PyTorchs built-in \texttt{torch.optim.Adam}. We ran both on identical data, same weights, same batch ordering, same hyperparameters for 10 epochs.
+
+We checked PyTorchs source code on GitHub to confirm they implement the same Algorithm 1.
+
+\subsection{Reading the plot}
+Two overlaid loss curves. X-axis: iteration (0 to 4,690 = 10 epochs $\times$ 469 batches). Y-axis: training loss. The two lines overlap perfectly; you can barely tell them apart. Thats the point: our code produces the same numbers.
+
+Result: max absolute loss difference = $6.34 \times 10^{-7}$. Thats floating-point rounding, not an error. Our implementation is correct.
+
+\begin{deepdive}
+\subsubsection{Why $6.34 \times 10^{-7}$ and not exactly zero?}
+NumPy and PyTorch use the same IEEE 754 64-bit floating-point standard, but they can execute operations in slightly different orders. Floating-point arithmetic is not associative: $(a + b) + c$ can give a slightly different result than $a + (b + c)$ due to rounding at each step. Over 4,690 iterations these tiny differences accumulate to $\sim 10^{-7}$. This is well within expected floating-point tolerance.
+
+\subsubsection{What version of Adam does PyTorch implement?}
+PyTorch implements Algorithm 1 from the paper with a few optional extensions (AMSGrad, weight decay decoupling). We used the default settings which match Algorithm 1 exactly. We verified by reading the source code at \texttt{torch/optim/adam.py} on GitHub.
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: Is $6.34 \times 10^{-7}$ actually small?}\\
+A: Yes. For context, the loss values themselves range from about 2.3 (initial) to 0.26 (final). A difference of $10^{-7}$ means our losses agree to about 6 decimal places.
+\end{qabox}
+
+
+%% ============================================================
+\section{Slide 8: Experiment 3, Rosenbrock \textnormal{\color{muted}[$\sim$1:15]}}
+%% ============================================================
+
+\subsection{What to say}
+
+This is one we added ourselves to connect to our coursework. We applied all five optimizers to the Rosenbrock function:
+$$f(x,y) = (1-x)^2 + 100(y-x^2)^2$$
+Same test function from Chapter 3. Long narrow curved valley, $\kappa \approx 2500$ near the minimum at $(1, 1)$.
+
+Important: Adam was designed for stochastic optimization with noisy gradients. Rosenbrock gives you the exact gradient. So we shouldnt expect Adam to win here.
+
+\subsection{Reading the plot}
+The plot shows optimizer trajectories on the Rosenbrock contour map (or convergence curves). The minimum is at $(1, 1)$ where $f = 0$. Look for which paths reach closest to that point. Momentum and AdaGrad make it all the way. Adam gets close but not as close. SGD barely moves from the start.
+
+Results: SGD stuck at $f = 1.47$. Momentum reached $f = 0.00007$. AdaGrad reached $f = 0.000002$ (best). Adam reached $f = 0.043$. Plain SGD matches the class prediction since $(\kappa-1)/(\kappa+1) \approx 0.999$.
+
+\begin{deepdive}
+\subsubsection{Why does Adam struggle on Rosenbrock?}
+Adams adaptive scaling was designed for the stochastic setting where gradients are noisy and unreliable. On Rosenbrock, the gradient is exact (no noise), so the momentum smoothing isnt needed (theres no noise to smooth). The adaptive scaling can actually hurt because it normalizes away useful gradient magnitude information. For example, when approaching the minimum where gradients get very small, the normalization makes the step sizes relatively large, causing overshooting.
+
+\subsubsection{What is the Rosenbrock function?}
+$f(x,y) = (1-x)^2 + 100(y - x^2)^2$. The global minimum is at $(1, 1)$ where $f = 0$. It has a narrow curved valley where the ``floor'' descends slowly from the ``entrance'' near $(-1, 1)$ to the minimum at $(1, 1)$. The valley is very flat along the valley floor but very steep on the sides, giving $\kappa \approx 2500$.
+
+The gradient is:
+$$\nabla f = \begin{bmatrix} -2(1-x) - 400x(y - x^2) \\ 200(y - x^2) \end{bmatrix}$$
+
+\subsubsection{How does this connect to class?}
+We used the Rosenbrock function in Assignments 1 and 2 to test gradient descent, Newtons method, and BFGS. The high condition number makes it a hard test for steepest descent. From Theorem 3.4, with $\kappa = 2500$: convergence rate $= (2500-1)/(2500+1) \approx 0.999$, meaning 0.1\% error reduction per step. SGDs final $f = 1.47$ after 10,000 steps confirms this theoretical prediction.
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: Why did you start at $(-1, 1)$ and not somewhere else?}\\
+A: Its a standard starting point used in optimization textbooks (including Nocedal \& Wright). Its in the valley but far from the minimum, giving a challenging path that tests the optimizers ability to follow the curved narrow valley.
+
+\textbf{Q: If Adam isnt the best on Rosenbrock, when IS it the best?}\\
+A: When gradients are stochastic (minibatch noise), high-dimensional (thousands+ of parameters), and the loss surface is non-convex (multiple local minima). These conditions describe virtually all deep learning training. Rosenbrock is the opposite: exact gradients, 2 dimensions, and it has a unique global minimum.
+\end{qabox}
+
+
+%% ============================================================
+\section{Slide 9: Experiment 4, Hyperparameters \textnormal{\color{muted}[$\sim$1:15]}}
+%% ============================================================
+
+\subsection{What to say}
+
+The paper claims Adam is robust to the $\beta$ choices (Section 6.4). We tested by varying $\alpha$ (step-size), $\beta_1$ (momentum decay), and $\beta_2$ (scale decay) one at a time on MNIST for 20 epochs.
+
+\subsection{Reading the plot}
+Three panels (or subplots).
+
+\textbf{Panel 1, varying $\alpha$ (step-size):} Multiple convergence curves for $\alpha \in \{0.0001, 0.0005, 0.001, 0.005\}$. The curves are spread far apart. $\alpha = 0.005$ (fastest) reaches the lowest loss (0.209). $\alpha = 0.0001$ (slowest) barely drops by epoch 20 (loss 0.267). Wide spread means $\alpha$ has HIGH impact.
+
+\textbf{Panel 2, varying $\beta_1$ (momentum decay):} Curves for $\beta_1 \in \{0.0, 0.5, 0.9, 0.99\}$. All curves are bunched tightly together. Final loss varies only from 0.210 to 0.215. Tight cluster means LOW impact.
+
+\textbf{Panel 3, varying $\beta_2$ (scale decay):} Curves for $\beta_2 \in \{0.9, 0.99, 0.999, 0.9999\}$. Also bunched. Loss varies 0.215 to 0.223. LOW impact.
+
+Conclusion: $\alpha$ (step-size) is the only one you need to tune. The defaults for $\beta_1$ and $\beta_2$ just work. This is a big practical reason Adam became popular.
+
+\begin{deepdive}
+\subsubsection{What does $\beta_1 = 0$ mean?}
+No momentum at all. The momentum term becomes $m_t = (1-0) \cdot g_t = g_t$, so $m_t$ is just the raw gradient with no smoothing. Its equivalent to RMSProp with bias correction. The fact that this still works OK shows that the adaptive scaling ($v_t$) does most of the heavy lifting; momentum is a nice bonus.
+
+\subsubsection{Why is $\alpha$ so much more impactful?}
+$\alpha$ directly controls the magnitude of every step. Double $\alpha$ and every step is twice as large. The $\beta$ values only control how ``smoothly'' the EMAs adapt, which is a second-order effect. As long as $\beta_1$ keeps some momentum and $\beta_2$ keeps a long enough window, the exact values dont matter much.
+
+\subsubsection{What does the paper say theoretically?}
+Theorem 4.1 in the paper proves that Adam has $O(1/\sqrt{T})$ regret for convex online optimization problems. ``Regret'' measures the cumulative difference between Adamslosses and the best fixed-point loss. $O(1/\sqrt{T})$ is the same rate as standard SGD, meaning Adam is at least as good asymptotically. In practice, the constant factors are much better.
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: What if the professor asks about convergence guarantees?}\\
+A: The paper proves $O(1/\sqrt{T})$ regret bound in Theorem 4.1 for convex problems, matching SGD. For non-convex, there is no formal convergence proof in the paper (this was later shown to have issues; see Reddi et al., 2018, which proposed AMSGrad). In practice Adam converges well despite the theoretical gaps.
+\end{qabox}
+
+
+%% ============================================================
+\section{Slide 10: Experiment 5, MLP \textnormal{\color{muted}[$\sim$1:30]}}
+%% ============================================================
+
+\subsection{What to say}
+
+Now we test on a harder problem. Logistic regression is just one matrix multiply; its simple and the loss landscape is convex (one global minimum, no local traps). A neural network adds a hidden layer that can learn non-linear patterns, making the problem much harder to optimize.
+
+Our multi-layer perceptron (MLP) works like this: the 784 pixel inputs go through a first set of weights $W_1$ ($784 \times 128$) and bias $b_1$ to produce 128 hidden values. Then we apply ReLU, which is a simple function that zeros out any negative values ($\text{ReLU}(z) = \max(0, z)$). This nonlinearity is what gives the network the ability to learn patterns that a straight line cant capture. Then these 128 values go through a second set of weights $W_2$ ($128 \times 10$) and bias $b_2$ to produce 10 scores, and we apply softmax to get probabilities, same as before.
+
+The total parameter count: $W_1$ has $784 \times 128 = 100{,}352$ entries, $b_1$ has 128, $W_2$ has $128 \times 10 = 1{,}280$, $b_2$ has 10. Total: 101,770 parameters, 13 times more than logistic regression.
+
+We implemented backpropagation from scratch to compute gradients. Backprop is just the chain rule applied layer by layer: we compute the error at the output, then propagate it backwards through the second layer, through ReLU, and through the first layer, picking up the gradient for each set of weights along the way.
+
+We used He initialization for the weights, which sets them to small random values scaled by $\sqrt{2/n}$ where $n$ is the number of inputs to that layer. This prevents the signal from blowing up or vanishing as it passes through the network.
+
+\subsection{Reading the architecture diagram}
+Below the plot: three boxes connected by arrows. ``Input (784 pixels)'' $\to$ ``Hidden (128 neurons, ReLU)'' $\to$ ``Output (10 classes, softmax).'' Total parameters: 101,770 shown on the right.
+
+\subsection{Reading the plot}
+The plot shows convergence curves (training loss vs epoch) and/or accuracy comparisons. Look for: (1) Adam reaching the lowest loss fastest, (2) the final accuracy numbers, and (3) the size of the gap compared to Experiment 1.
+
+Results: Adam 97.97\%, RMSProp 97.92\%, Momentum 97.72\%, AdaGrad 97.34\%, SGD 93.80\%. Adam wins by over 4 percentage points over plain SGD. Compare that to Experiment 1 where the gap was only about 1 point. The much bigger gap shows that Adams advantages become way more pronounced when the problem is non-convex and has more parameters.
+
+RMSProp is very close to Adam at 97.92\%, which makes sense because Adam is essentially RMSProp plus momentum plus bias correction. The momentum and bias correction give Adam that small extra edge.
+
+\begin{deepdive}
+\subsubsection{What is ReLU?}
+$\text{ReLU}(z) = \max(0, z)$. It zeros out negative values and passes positive values through unchanged. Its the most common activation function in modern neural networks because its simple, fast, and avoids the ``vanishing gradient'' problem that affects sigmoid/tanh.
+
+\subsubsection{What is backpropagation?}
+The algorithm for computing gradients through a multi-layer network using the chain rule. For our MLP:
+\begin{enumerate}[leftmargin=2em, itemsep=2pt]
+  \item \textbf{Forward pass:} compute $z_1 = XW_1 + b_1$, $a_1 = \text{ReLU}(z_1)$, $z_2 = a_1 W_2 + b_2$, $a_2 = \text{softmax}(z_2)$
+  \item \textbf{Output layer gradient:} $dZ_2 = a_2 - y_{\text{true}}$ (same as logistic regression)
+  \item \textbf{Backprop through hidden:} $dA_1 = dZ_2 \cdot W_2^T$, then $dZ_1 = dA_1 \odot \text{ReLU}'(z_1)$ where $\text{ReLU}'(z) = \mathbb{1}[z > 0]$
+  \item \textbf{Weight gradients:} $dW_2 = a_1^T \cdot dZ_2 / N$, $dW_1 = X^T \cdot dZ_1 / N$
+\end{enumerate}
+
+\subsubsection{What is He initialization?}
+Initializing weights as $W \sim \mathcal{N}(0, \sqrt{2/n_{\text{in}}})$ where $n_{\text{in}}$ is the number of inputs to the layer. This scaling prevents the signal from exploding or vanishing as it passes through ReLU layers. Proposed by He et al. (2015). For our hidden layer: $W_1 \sim \mathcal{N}(0, \sqrt{2/784}) \approx \mathcal{N}(0, 0.05)$.
+
+\subsubsection{Why is the MLP non-convex?}
+Adding a hidden layer with a nonlinear activation (ReLU) creates a loss surface with multiple local minima, saddle points, and plateaus. You can permute the hidden neurons and get the same function, creating many equivalent minima. Different optimizers can converge to different local minima with different loss values. This is fundamentally different from logistic regression where theres a single global minimum.
+
+\subsubsection{Where does the 101,770 come from?}
+$W_1$: $784 \times 128 = 100{,}352$. $b_1$: $128$. $W_2$: $128 \times 10 = 1{,}280$. $b_2$: $10$. Total: $100{,}352 + 128 + 1{,}280 + 10 = 101{,}770$.
+
+\subsubsection{Why does Adam shine here but not on Rosenbrock?}
+Three reasons: (1) stochastic gradients from minibatches mean the adaptive smoothing is needed, (2) 101,770 parameters means per-parameter scaling helps a lot (different layers and neurons have very different gradient scales), (3) non-convex surface means the optimizer can get stuck; Adams momentum helps escape flat regions and saddle points.
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: Why 128 hidden neurons?}\\
+A: Common choice for MNIST that balances model capacity with training speed. The Adam paper uses 1000 hidden neurons in Section 6.2. We used 128 to keep training fast (under a minute) while still making the problem non-convex.
+
+\textbf{Q: Could you add more layers?}\\
+A: Yes, but backprop gets more complex and training takes longer. One hidden layer is sufficient to demonstrate that Adams advantages grow with problem complexity.
+\end{qabox}
+
+
+%% ============================================================
+\section{Slide 11: Course Connection \textnormal{\color{muted}[$\sim$1:00]}}
+%% ============================================================
+
+\subsection{What to say}
+
+The deep connection to our course is that the whole evolution of step-size strategies we studied builds up to what Adam does.
+
+Gradient descent from Chapter 3: one $\alpha$ for everything, or line search. Ignores curvature. $O(n)$ memory.
+
+BFGS from Chapter 6: the inverse Hessian approximation $H_k^{-1}$ scales the gradient with full curvature information. $O(n^2)$ memory.
+
+Adam: per-parameter adaptive scaling using a diagonal approximation $\hat{m}_t / \sqrt{\hat{v}_t}$ from gradient history. $O(n)$ memory.
+
+All three are doing the same thing: using gradient history to take smarter steps. Adam is a practical compromise between the simplicity of GD and the intelligence of BFGS, built for the noisy high-dimensional world of machine learning.
+
+\begin{deepdive}
+\subsubsection{What exactly is the ``diagonal approximation''?}
+BFGS maintains a full $n \times n$ matrix $H_k^{-1}$ that captures how every parameter interacts with every other parameter. If you extracted just the diagonal of this matrix, you would get a per-parameter scaling factor. Adams $1/\sqrt{\hat{v}_t}$ serves a similar role: it gives each parameter its own scaling factor based on how volatile that parameters gradient has been. The off-diagonal entries (cross-correlations) are lost, but this is an acceptable trade-off when $n$ is in the millions.
+
+\subsubsection{Quick comparison table}
+
+\begin{tabularx}{\textwidth}{l X X X}
+\textbf{Property} & \textbf{GD} & \textbf{BFGS} & \textbf{Adam} \\
+\hline
+Memory & $O(n)$ & $O(n^2)$ & $O(n)$ \\
+Curvature & None & Full matrix & Diagonal \\
+Noise handling & Bad & Bad & Good \\
+Line search & Required & Required & Not needed \\
+Convergence & Linear & Superlinear & $O(1/\sqrt{T})$ regret \\
+Best for & Small, smooth & Smooth, exact grad & Large, noisy, non-convex \\
+\end{tabularx}
+
+\subsubsection{What does $O(n)$ vs $O(n^2)$ mean practically?}
+For our logistic regression: $n = 7{,}850$. BFGS needs $7{,}850^2 \approx 62$ million entries = 496 MB of memory just for $H_k$. Adam needs $2n = 15{,}700$ entries for $m_t$ and $v_t$ = 126 KB. For a large neural network with $n = 10{,}000{,}000$ (10M params): BFGS would need $10^{14}$ entries which is literally impossible. Adam needs 80 MB. Thats the practical difference.
+\end{deepdive}
+
+
+%% ============================================================
+\section{Slide 12: Summary \textnormal{\color{muted}[$\sim$0:45]}}
+%% ============================================================
+
+\subsection{What to say}
+
+Five key findings:
+\begin{enumerate}[leftmargin=2em, itemsep=3pt]
+  \item All adaptive methods beat plain SGD on MNIST, consistent with the papers trends (Section 6.1).
+  \item Our implementation is correct: max difference vs PyTorch = $6.34 \times 10^{-7}$ over 4,690 iterations.
+  \item Adam struggles on deterministic problems (Rosenbrock), confirming it was built for noisy gradients.
+  \item $\alpha$ (step-size) is the only hyperparameter that really matters. $\beta_1$ and $\beta_2$ are robust.
+  \item Adam shines on non-convex problems: 97.97\% on MLP vs 93.80\% for SGD, a 4+ point gap.
+\end{enumerate}
+
+Thank you. Happy to take any questions.
+
+\begin{deepdive}
+\subsubsection{If pressed for one sentence}
+``Adam combines momentum and adaptive per-parameter scaling with bias correction, giving it $O(n)$ memory like gradient descent but much smarter step sizes like BFGS, and it handles noisy gradients naturally because it was designed for the stochastic setting.''
+\end{deepdive}
+
+\begin{qabox}
+\textbf{Q: Is Adam still the best in 2026?}\\
+A: Adam and its variants (AdamW, which fixes weight decay) remain the default for training most neural networks. Some researchers prefer SGD + momentum for specific architectures (like ResNets) because it can generalize slightly better. But for most practical purposes, Adam is the go-to starting point.
+
+\textbf{Q: What is AdamW?}\\
+A: AdamW (Loshchilov \& Hutter, 2019) decouples weight decay from the adaptive learning rate. In standard Adam, L2 regularization interacts oddly with the adaptive scaling. AdamW fixes this. Its the default optimizer in most modern frameworks (Hugging Face, PyTorch Lightning).
+\end{qabox}
+
+\end{document}

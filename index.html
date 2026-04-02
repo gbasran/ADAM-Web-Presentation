@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adam: A Method for Stochastic Optimization | MATH 3850 Project</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true},{left: '$', right: '$', display: false}]});"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============================================================
+     SLIDE 0: TITLE
+     ============================================================ -->
+<section class="slide title-slide active" id="s0">
+  <div class="slide-inner">
+    <span class="tag">MATH 3850: Numerical Optimization</span>
+    <h1 style="font-size: 2.8rem; margin-top: 16px;">Adam: A Method for<br>Stochastic Optimization</h1>
+    <p class="subtitle" style="margin-top: 12px; margin-bottom: 24px;">
+      Reproducing key results from Kingma &amp; Ba (ICLR 2015)
+    </p>
+    <p style="color: var(--text-secondary); font-size: 1rem;">
+      Gurman Basran &amp; Qusai Quresh<br>
+      <span class="muted">University of Lethbridge, Winter 2026</span><br>
+      <span class="muted">April 2, 2026</span>
+    </p>
+    <div style="margin-top: 40px;">
+      <p style="color: var(--text-muted); font-size: 0.82rem;">
+        5 optimizers implemented from scratch in NumPy &middot; 5 experiments &middot; PyTorch validation
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 1: THE PROBLEM
+     ============================================================ -->
+<section class="slide" id="s1">
+  <div class="slide-inner">
+    <span class="section-label">Part 1: Explaining the Algorithm</span>
+    <h1>The Problem: Why Not Just Use Gradient Descent?</h1>
+    <p class="subtitle">Two problems we ran into in class, and what motivated Adam</p>
+
+    <div class="two-col">
+      <div>
+        <h2 class="mt-0">Problem 1: One Step-Size for All</h2>
+        <p>In gradient descent, we use a single $\alpha$ (step-size) for every parameter. If the landscape is stretched out in one direction (high $\kappa$ (condition number)), GD zigzags back and forth across the narrow direction and barely makes progress along the wide direction.</p>
+        <p>From class (Theorem 3.4): the convergence rate of steepest descent is $\frac{\kappa - 1}{\kappa + 1}$. If $\kappa = 2500$, thats $\frac{2499}{2501} \approx 0.999$, meaning each step only reduces the error by 0.1%.</p>
+      </div>
+      <div>
+        <h2 class="mt-0">Problem 2: Noisy Gradients</h2>
+        <p>In machine learning we dont compute the gradient on ALL the data. We use a small random minibatch (128 samples out of 60,000), so $g_t$ (the gradient estimate) is noisy. That makes the zigzag even worse.</p>
+        <p>Methods like Newtons method and BFGS from class dont work here because they need exact gradients and store an $n \times n$ matrix ($O(n^2)$ memory), which is impossible with millions of parameters.</p>
+      </div>
+    </div>
+
+    <!-- SVG: zigzag vs smooth -->
+    <div style="text-align: center; margin: 24px 0 8px;">
+      <svg viewBox="0 0 800 260" width="800" height="260" xmlns="http://www.w3.org/2000/svg" style="max-width: 100%;">
+        <!-- left: GD zigzag -->
+        <text x="200" y="22" fill="#d4956a" font-size="15" font-weight="600" text-anchor="middle">Gradient Descent (one step-size)</text>
+        <!-- ellipses -->
+        <ellipse cx="200" cy="145" rx="160" ry="55" fill="none" stroke="#3a3a46" stroke-width="1.5"/>
+        <ellipse cx="200" cy="145" rx="120" ry="40" fill="none" stroke="#3a3a46" stroke-width="1.2"/>
+        <ellipse cx="200" cy="145" rx="80" ry="26" fill="none" stroke="#3a3a46" stroke-width="1"/>
+        <ellipse cx="200" cy="145" rx="40" ry="13" fill="none" stroke="#3a3a46" stroke-width="0.8"/>
+        <!-- zigzag path -->
+        <polyline points="55,80 180,200 100,95 210,190 140,110 200,160 190,130 200,145"
+          fill="none" stroke="#c47070" stroke-width="2.5" stroke-linejoin="round"/>
+        <circle cx="55" cy="80" r="4" fill="#c47070"/>
+        <circle cx="200" cy="145" r="4" fill="#6aab8e"/>
+        <text x="200" y="250" fill="#706c64" font-size="12" text-anchor="middle">Zigzags with high condition number</text>
+
+        <!-- divider -->
+        <line x1="400" y1="30" x2="400" y2="230" stroke="#3a3a46" stroke-width="1" stroke-dasharray="4,4"/>
+
+        <!-- right: Adam smooth -->
+        <text x="600" y="22" fill="#6aab8e" font-size="15" font-weight="600" text-anchor="middle">Adam (per-parameter adaptive)</text>
+        <ellipse cx="600" cy="145" rx="160" ry="55" fill="none" stroke="#3a3a46" stroke-width="1.5"/>
+        <ellipse cx="600" cy="145" rx="120" ry="40" fill="none" stroke="#3a3a46" stroke-width="1.2"/>
+        <ellipse cx="600" cy="145" rx="80" ry="26" fill="none" stroke="#3a3a46" stroke-width="1"/>
+        <ellipse cx="600" cy="145" rx="40" ry="13" fill="none" stroke="#3a3a46" stroke-width="0.8"/>
+        <!-- smooth path -->
+        <path d="M455,80 C480,100 510,120 540,130 C560,135 580,140 600,145"
+          fill="none" stroke="#6aab8e" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="455" cy="80" r="4" fill="#6aab8e"/>
+        <circle cx="600" cy="145" r="4" fill="#6aab8e"/>
+        <text x="600" y="250" fill="#706c64" font-size="12" text-anchor="middle">Adapts each parameter individually</text>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 2: THE IDEA
+     ============================================================ -->
+<section class="slide" id="s2">
+  <div class="slide-inner">
+    <span class="section-label">Part 1: Explaining the Algorithm</span>
+    <h1>The Idea: Combine Two Ingredients</h1>
+    <p class="subtitle">Adam = Momentum + Adaptive Learning Rates + Bias Correction</p>
+
+    <!-- Timeline SVG -->
+    <div style="text-align: center; margin: 16px 0 24px;">
+      <svg viewBox="0 0 860 200" width="860" height="200" xmlns="http://www.w3.org/2000/svg" style="max-width: 100%;">
+        <!-- timeline line -->
+        <line x1="60" y1="110" x2="800" y2="110" stroke="#3a3a46" stroke-width="2"/>
+
+        <!-- bracket: momentum idea -->
+        <path d="M60,55 L60,65 L245,65 L245,55" fill="none" stroke="#9b89b6" stroke-width="1.5"/>
+        <text x="152" y="48" fill="#9b89b6" font-size="12" font-weight="600" text-anchor="middle">MOMENTUM IDEA</text>
+
+        <!-- bracket: adaptive idea -->
+        <path d="M430,55 L430,65 L615,65 L615,55" fill="none" stroke="#6b8fbd" stroke-width="1.5"/>
+        <text x="522" y="48" fill="#6b8fbd" font-size="12" font-weight="600" text-anchor="middle">ADAPTIVE IDEA</text>
+
+        <!-- bracket: both -->
+        <path d="M700,55 L700,65 L800,65 L800,55" fill="none" stroke="#d4956a" stroke-width="1.5"/>
+        <text x="750" y="48" fill="#d4956a" font-size="12" font-weight="600" text-anchor="middle">BOTH</text>
+
+        <!-- dots and labels -->
+        <circle cx="60" cy="110" r="7" fill="#3a3a46" stroke="#706c64" stroke-width="1.5"/>
+        <text x="60" y="100" fill="#a8a49c" font-size="11" text-anchor="middle">GD</text>
+        <text x="60" y="140" fill="#706c64" font-size="10" text-anchor="middle">Cauchy</text>
+        <text x="60" y="155" fill="#706c64" font-size="10" text-anchor="middle">1847</text>
+
+        <circle cx="245" cy="110" r="7" fill="#3a3a46" stroke="#9b89b6" stroke-width="1.5"/>
+        <text x="245" y="100" fill="#9b89b6" font-size="11" text-anchor="middle">Momentum</text>
+        <text x="245" y="140" fill="#706c64" font-size="10" text-anchor="middle">Polyak</text>
+        <text x="245" y="155" fill="#706c64" font-size="10" text-anchor="middle">1964</text>
+
+        <circle cx="430" cy="110" r="7" fill="#3a3a46" stroke="#6b8fbd" stroke-width="1.5"/>
+        <text x="430" y="100" fill="#6b8fbd" font-size="11" text-anchor="middle">AdaGrad</text>
+        <text x="430" y="140" fill="#706c64" font-size="10" text-anchor="middle">Duchi</text>
+        <text x="430" y="155" fill="#706c64" font-size="10" text-anchor="middle">2011</text>
+
+        <circle cx="615" cy="110" r="7" fill="#3a3a46" stroke="#6b8fbd" stroke-width="1.5"/>
+        <text x="615" y="100" fill="#6b8fbd" font-size="11" text-anchor="middle">RMSProp</text>
+        <text x="615" y="140" fill="#706c64" font-size="10" text-anchor="middle">Hinton</text>
+        <text x="615" y="155" fill="#706c64" font-size="10" text-anchor="middle">2012</text>
+
+        <circle cx="750" cy="110" r="9" fill="#d4956a" stroke="#d4956a" stroke-width="2"/>
+        <text x="750" y="98" fill="#d4956a" font-size="13" font-weight="700" text-anchor="middle">Adam</text>
+        <text x="750" y="142" fill="#706c64" font-size="10" text-anchor="middle">Kingma &amp; Ba</text>
+        <text x="750" y="157" fill="#706c64" font-size="10" text-anchor="middle">2015</text>
+
+        <!-- converging arrows to Adam -->
+        <path d="M270,110 Q500,75 730,110" fill="none" stroke="#9b89b6" stroke-width="1" stroke-dasharray="4,3"/>
+        <path d="M640,110 Q700,95 730,110" fill="none" stroke="#6b8fbd" stroke-width="1" stroke-dasharray="4,3"/>
+      </svg>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div class="formula-box">
+          <h3 style="color: var(--accent-lilac); margin-top: 0;">Ingredient 1: Momentum</h3>
+          <p>Keep a running average of the gradient direction. Smooths out noise so you move steadily.</p>
+          $$m_t = \beta_1 \cdot m_{t-1} + (1 - \beta_1) \cdot g_t$$
+          <dl class="breakdown">
+            <dt>$m_t$</dt><dd>momentum estimate (first moment); smoothed gradient direction</dd>
+            <dt>$\beta_1$</dt><dd>momentum decay rate; typically 0.9 (keep 90% of old, mix in 10% new)</dd>
+            <dt>$g_t$</dt><dd>gradient at the current timestep</dd>
+          </dl>
+        </div>
+      </div>
+      <div>
+        <div class="formula-box">
+          <h3 style="color: var(--accent-blue); margin-top: 0;">Ingredient 2: Adaptive Rates</h3>
+          <p>Track how volatile each parameter is. Big gradients get smaller steps; small gradients get bigger steps.</p>
+          $$v_t = \beta_2 \cdot v_{t-1} + (1 - \beta_2) \cdot g_t^2$$
+          <dl class="breakdown">
+            <dt>$v_t$</dt><dd>scale estimate (second moment); tracks gradient magnitude per parameter</dd>
+            <dt>$\beta_2$</dt><dd>scale decay rate; typically 0.999 (very slow-moving average)</dd>
+            <dt>$g_t^2$</dt><dd>element-wise squared gradient</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top: 16px;">
+      <strong>Bias correction:</strong> Both $m_t$ (momentum) and $v_t$ (scale) start at zero, so early estimates are too small. Adam corrects this:
+      $\hat{m}_t = m_t \,/\, (1 - \beta_1^t)$ and $\hat{v}_t = v_t \,/\, (1 - \beta_2^t)$.
+      The correction vanishes as $t$ grows large.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 3: THE ALGORITHM
+     ============================================================ -->
+<section class="slide" id="s3">
+  <div class="slide-inner">
+    <span class="section-label">Part 1: Explaining the Algorithm</span>
+    <h1>Algorithm 1: Adam (from the paper)</h1>
+    <p class="subtitle">Kingma &amp; Ba (2015), page 2. Every line explained.</p>
+
+    <div class="two-col" style="grid-template-columns: 1.3fr 0.7fr; gap: 24px;">
+      <div>
+        <!-- INIT -->
+        <div class="algo-section init">
+          <div class="section-title">Initialization</div>
+          <div class="algo-line">
+            <span class="num">1</span>
+            <span class="formula">$m_0 \leftarrow 0$, $v_0 \leftarrow 0$, $t \leftarrow 0$</span>
+            <span class="explain">all zeros to start</span>
+          </div>
+        </div>
+
+        <!-- LOOP -->
+        <div class="algo-section loop">
+          <div class="section-title">Repeat Until Converged</div>
+          <div class="algo-line">
+            <span class="num">2</span>
+            <span class="formula">$t \leftarrow t + 1$</span>
+            <span class="explain">bump the clock</span>
+          </div>
+          <div class="algo-line">
+            <span class="num">3</span>
+            <span class="formula">$g_t \leftarrow \nabla f_t(\theta_{t-1})$</span>
+            <span class="explain">gradient on minibatch</span>
+          </div>
+          <div class="algo-line">
+            <span class="num">4</span>
+            <span class="formula">$m_t \leftarrow \beta_1 \cdot m_{t-1} + (1 - \beta_1) \cdot g_t$</span>
+            <span class="explain">update momentum</span>
+          </div>
+          <div class="algo-line">
+            <span class="num">5</span>
+            <span class="formula">$v_t \leftarrow \beta_2 \cdot v_{t-1} + (1 - \beta_2) \cdot g_t^2$</span>
+            <span class="explain">update scale</span>
+          </div>
+          <div class="algo-line">
+            <span class="num">6</span>
+            <span class="formula">$\hat{m}_t \leftarrow m_t \,/\, (1 - \beta_1^t)$</span>
+            <span class="explain">correct momentum bias</span>
+          </div>
+          <div class="algo-line">
+            <span class="num">7</span>
+            <span class="formula">$\hat{v}_t \leftarrow v_t \,/\, (1 - \beta_2^t)$</span>
+            <span class="explain">correct scale bias</span>
+          </div>
+          <div class="algo-line" style="background: rgba(106,171,142,0.1); border: 1px solid rgba(106,171,142,0.2); border-radius: 4px;">
+            <span class="num" style="color: var(--accent-sage);">8</span>
+            <span class="formula"><strong style="color: var(--accent-sage);">$\theta_t \leftarrow \theta_{t-1} - \alpha \cdot \hat{m}_t \,/\, (\sqrt{\hat{v}_t} + \epsilon)$</strong></span>
+            <span class="explain" style="color: var(--accent-sage);">THE UPDATE</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2 class="mt-0" style="font-size: 1.1rem; border: none; margin-bottom: 12px;">Hyperparameters</h2>
+        <dl class="breakdown" style="font-size: 0.9rem;">
+          <dt>$\alpha$</dt><dd>step-size (learning rate). Default: 0.001</dd>
+          <dt>$\beta_1$</dt><dd>momentum decay. Default: 0.9</dd>
+          <dt>$\beta_2$</dt><dd>scale decay. Default: 0.999</dd>
+          <dt>$\epsilon$</dt><dd>numerical safety. Default: $10^{-8}$</dd>
+        </dl>
+
+        <div class="why-box" style="margin-top: 20px;">
+          <h3>Why This Works</h3>
+          <p style="font-size: 0.92rem;">Line 8 is the key: $\hat{m}_t$ (bias-corrected momentum) tells us the direction. $\sqrt{\hat{v}_t}$ (root of bias-corrected scale) normalizes by magnitude. The ratio $\hat{m}_t / \sqrt{\hat{v}_t}$ gives each parameter its own effective step size. The paper shows each step is approximately bounded by $\alpha$ (step-size), which is the trust region property.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 4: DATA FLOW
+     ============================================================ -->
+<section class="slide" id="s4">
+  <div class="slide-inner">
+    <span class="section-label">Part 1: Explaining the Algorithm</span>
+    <h1>Data Flow: How the Pieces Connect</h1>
+    <p class="subtitle">The gradient splits into two paths, then recombines for the update</p>
+
+    <div style="text-align: center; margin: 24px 0;">
+      <svg viewBox="0 0 820 300" width="820" height="300" xmlns="http://www.w3.org/2000/svg" style="max-width: 100%;">
+        <!-- gradient box -->
+        <rect x="20" y="120" width="120" height="50" rx="6" fill="#25252e" stroke="#c47070" stroke-width="2"/>
+        <text x="80" y="150" fill="#c47070" font-size="14" font-weight="600" text-anchor="middle">Gradient $g_t$</text>
+
+        <!-- arrows from gradient -->
+        <line x1="140" y1="130" x2="210" y2="75" stroke="#a8a49c" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+        <line x1="140" y1="160" x2="210" y2="215" stroke="#a8a49c" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+
+        <!-- momentum box -->
+        <rect x="210" y="45" width="150" height="55" rx="6" fill="#25252e" stroke="#9b89b6" stroke-width="2"/>
+        <text x="285" y="68" fill="#9b89b6" font-size="13" font-weight="600" text-anchor="middle">Momentum</text>
+        <text x="285" y="88" fill="#a8a49c" font-size="11" text-anchor="middle">$m_t = \beta_1 m_{t-1} + (1-\beta_1)g_t$</text>
+
+        <!-- scale box -->
+        <rect x="210" y="190" width="150" height="55" rx="6" fill="#25252e" stroke="#c47070" stroke-width="2"/>
+        <text x="285" y="213" fill="#c47070" font-size="13" font-weight="600" text-anchor="middle">Scale</text>
+        <text x="285" y="233" fill="#a8a49c" font-size="11" text-anchor="middle">$v_t = \beta_2 v_{t-1} + (1-\beta_2)g_t^2$</text>
+
+        <!-- arrows to correction -->
+        <line x1="360" y1="72" x2="430" y2="72" stroke="#a8a49c" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+        <line x1="360" y1="218" x2="430" y2="218" stroke="#a8a49c" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+
+        <!-- correction boxes -->
+        <rect x="430" y="45" width="150" height="55" rx="6" fill="#25252e" stroke="#c9a84c" stroke-width="2"/>
+        <text x="505" y="68" fill="#c9a84c" font-size="13" font-weight="600" text-anchor="middle">Bias Correct</text>
+        <text x="505" y="88" fill="#a8a49c" font-size="11" text-anchor="middle">$\hat{m}_t = m_t / (1-\beta_1^t)$</text>
+
+        <rect x="430" y="190" width="150" height="55" rx="6" fill="#25252e" stroke="#c9a84c" stroke-width="2"/>
+        <text x="505" y="213" fill="#c9a84c" font-size="13" font-weight="600" text-anchor="middle">Bias Correct</text>
+        <text x="505" y="233" fill="#a8a49c" font-size="11" text-anchor="middle">$\hat{v}_t = v_t / (1-\beta_2^t)$</text>
+
+        <!-- arrows to update -->
+        <line x1="580" y1="72" x2="650" y2="130" stroke="#a8a49c" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+        <line x1="580" y1="218" x2="650" y2="165" stroke="#a8a49c" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+
+        <!-- update box -->
+        <rect x="650" y="120" width="150" height="55" rx="6" fill="rgba(106,171,142,0.12)" stroke="#6aab8e" stroke-width="2.5"/>
+        <text x="725" y="143" fill="#6aab8e" font-size="14" font-weight="700" text-anchor="middle">Update</text>
+        <text x="725" y="163" fill="#6aab8e" font-size="11" text-anchor="middle">$\theta_t = \theta_{t-1} - \alpha\frac{\hat{m}_t}{\sqrt{\hat{v}_t}+\epsilon}$</text>
+
+        <!-- arrow markers -->
+        <defs>
+          <marker id="arrowGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#a8a49c"/>
+          </marker>
+        </defs>
+
+        <!-- labels on paths -->
+        <text x="165" y="90" fill="#9b89b6" font-size="10" text-anchor="middle">direction</text>
+        <text x="165" y="205" fill="#c47070" font-size="10" text-anchor="middle">magnitude</text>
+      </svg>
+    </div>
+
+    <div class="why-box">
+      <h3>The Key Insight</h3>
+      <p>The gradient gets split into two separate streams of information: $\hat{m}_t$ (corrected momentum) captures the <strong>direction</strong> to go, and $\sqrt{\hat{v}_t}$ (root of corrected scale) captures the <strong>magnitude</strong> to normalize by. When we divide direction by magnitude, each parameter gets its own appropriately-sized step. This is analogous to what BFGS does with the inverse Hessian $H_k^{-1}$, but Adam does it with just $O(n)$ memory instead of $O(n^2)$.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 5: FROM PAPER TO CODE
+     ============================================================ -->
+<section class="slide" id="s5">
+  <div class="slide-inner">
+    <span class="section-label">Part 2: Code Demonstration</span>
+    <h1>From Paper to NumPy: Our Implementation</h1>
+    <p class="subtitle">Algorithm 1 translated line-by-line into Python</p>
+
+    <div class="two-col" style="gap: 20px;">
+      <div>
+        <div class="code-block">
+          <div class="code-title">Adam Optimizer Class (from our notebook)</div>
+<pre><span class="kw">class</span> <span class="fn">Adam</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(<span class="nb">self</span>, lr=<span class="num">0.001</span>, beta1=<span class="num">0.9</span>, beta2=<span class="num">0.999</span>, eps=<span class="num">1e-8</span>):
+        <span class="nb">self</span>.lr    = lr     <span class="cm"># alpha (step-size)</span>
+        <span class="nb">self</span>.beta1 = beta1  <span class="cm"># beta_1 (momentum decay)</span>
+        <span class="nb">self</span>.beta2 = beta2  <span class="cm"># beta_2 (scale decay)</span>
+        <span class="nb">self</span>.eps   = eps    <span class="cm"># epsilon (safety)</span>
+        <span class="nb">self</span>.m = <span class="kw">None</span>       <span class="cm"># m_t (first moment)</span>
+        <span class="nb">self</span>.v = <span class="kw">None</span>       <span class="cm"># v_t (second moment)</span>
+        <span class="nb">self</span>.t = <span class="num">0</span>          <span class="cm"># timestep counter</span>
+
+    <span class="kw">def</span> <span class="fn">step</span>(<span class="nb">self</span>, params, grads):
+        <span class="nb">self</span>.t += <span class="num">1</span>                                  <span class="cm"># line 2</span>
+        <span class="nb">self</span>.m = <span class="nb">self</span>.beta1 * <span class="nb">self</span>.m \
+              + (<span class="num">1</span> - <span class="nb">self</span>.beta1) * grads              <span class="cm"># line 4</span>
+        <span class="nb">self</span>.v = <span class="nb">self</span>.beta2 * <span class="nb">self</span>.v \
+              + (<span class="num">1</span> - <span class="nb">self</span>.beta2) * grads ** <span class="num">2</span>         <span class="cm"># line 5</span>
+        m_hat = <span class="nb">self</span>.m / (<span class="num">1</span> - <span class="nb">self</span>.beta1 ** <span class="nb">self</span>.t)  <span class="cm"># line 6</span>
+        v_hat = <span class="nb">self</span>.v / (<span class="num">1</span> - <span class="nb">self</span>.beta2 ** <span class="nb">self</span>.t)  <span class="cm"># line 7</span>
+        <span class="kw">return</span> params - <span class="nb">self</span>.lr * m_hat \
+             / (<span class="nb">np</span>.sqrt(v_hat) + <span class="nb">self</span>.eps)            <span class="cm"># line 8</span></pre>
+        </div>
+      </div>
+
+      <div>
+        <div class="code-block">
+          <div class="code-title">Training Loop</div>
+<pre><span class="kw">for</span> epoch <span class="kw">in</span> <span class="fn">range</span>(n_epochs):
+    <span class="kw">for</span> X_batch, y_batch <span class="kw">in</span> <span class="fn">get_minibatches</span>(
+            X_train, y_train, batch_size=<span class="num">128</span>):
+        dW, db, loss = <span class="fn">compute_gradients</span>(
+            X_batch, y_batch, W, b)
+        grads = <span class="fn">flatten_params</span>(dW, db)
+        params = optimizer.<span class="fn">step</span>(params, grads)</pre>
+        </div>
+
+        <div class="code-block" style="margin-top: 14px;">
+          <div class="code-title">Model: Softmax + Cross-Entropy Gradient</div>
+<pre><span class="kw">def</span> <span class="fn">compute_gradients</span>(X, y_true, W, b):
+    y_pred = <span class="fn">softmax</span>(X @ W + b)
+    dZ = y_pred - y_true
+    dW = X.T @ dZ / batch_size   <span class="cm"># clean matrix form</span>
+    db = <span class="nb">np</span>.<span class="fn">mean</span>(dZ, axis=<span class="num">0</span>)
+    loss = <span class="fn">cross_entropy_loss</span>(y_pred, y_true)
+    <span class="kw">return</span> dW, db, loss</pre>
+        </div>
+
+        <div class="note" style="margin-top: 14px;">
+          <strong>Line-by-line match:</strong> Each comment on the left maps directly to a line number in Algorithm 1. The only difference is NumPy vectorization: all 7,850 parameters update simultaneously in one array operation.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 6: EXPERIMENT 1 — MNIST
+     ============================================================ -->
+<section class="slide" id="s6">
+  <div class="slide-inner">
+    <span class="section-label">Part 3: Experiments</span>
+    <h1>Experiment 1: MNIST Logistic Regression</h1>
+    <p class="subtitle">Reproducing Section 6.1 of the paper: 5 optimizers, 40 epochs, same starting weights</p>
+
+    <div class="two-col" style="grid-template-columns: 1fr 1fr;">
+      <div class="plot-stack">
+        <div>
+          <img src="images/split/plot1_linear.png" alt="MNIST convergence, linear scale" class="plot-img">
+          <p class="plot-caption">Training loss vs epoch (linear scale)</p>
+        </div>
+        <div>
+          <img src="images/split/plot1_log.png" alt="MNIST convergence, log scale" class="plot-img">
+          <p class="plot-caption">Training loss vs epoch (log scale; stretches out differences at the bottom)</p>
+        </div>
+      </div>
+      <div>
+        <div class="note" style="margin-top: 0;">
+          <strong>Setup:</strong> 60,000 MNIST images (28x28 pixels, 784 features), 10 digit classes. Minibatch size 128. All 5 optimizers start from the same random initial weights. Logistic regression: $\hat{y} = \text{softmax}(XW + b)$, cross-entropy loss. Total: 7,850 parameters.
+        </div>
+
+        <table class="step-table" style="margin-top: 14px;">
+          <thead>
+            <tr><th>Optimizer</th><th>Test Accuracy</th><th>Final Loss</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>SGD</td><td>91.58%</td><td>0.321</td></tr>
+            <tr><td>SGD + Momentum</td><td>92.36%</td><td>0.274</td></tr>
+            <tr><td>AdaGrad</td><td>92.72%</td><td>0.264</td></tr>
+            <tr><td>RMSProp</td><td>92.65%</td><td>0.260</td></tr>
+            <tr class="highlight"><td>Adam</td><td>92.69%</td><td>0.258</td></tr>
+          </tbody>
+        </table>
+
+        <div class="result-box" style="margin-top: 14px;">
+          <h3>Key Finding</h3>
+          <p style="font-size: 0.92rem;">All adaptive methods beat plain SGD, consistent with the papers trends. The differences between Adam, AdaGrad, and RMSProp are small here because logistic regression is a convex problem. Adam and Momentum converge fastest in the early epochs.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 7: EXPERIMENT 2 — PYTORCH VALIDATION
+     ============================================================ -->
+<section class="slide" id="s7">
+  <div class="slide-inner">
+    <span class="section-label">Part 3: Experiments</span>
+    <h1>Experiment 2: Is Our Code Correct?</h1>
+    <p class="subtitle">Validating our from-scratch Adam against PyTorchs torch.optim.Adam</p>
+
+    <div class="two-col" style="grid-template-columns: 1fr 1fr;">
+      <div class="plot-stack">
+        <div>
+          <img src="images/split/plot2_full.png" alt="Full PyTorch validation" class="plot-img">
+          <p class="plot-caption">Full run: 4,690 iterations. Both lines overlap perfectly.</p>
+        </div>
+        <div>
+          <img src="images/split/plot2_zoomed.png" alt="Zoomed first 500 iterations" class="plot-img">
+          <p class="plot-caption">Zoomed: first 500 iterations. Still indistinguishable.</p>
+        </div>
+      </div>
+      <div>
+        <div class="note" style="margin-top: 0;">
+          <strong>Setup:</strong> Run our Adam and PyTorchs <span class="mono">torch.optim.Adam</span> on identical data, same initial weights, same batch ordering, same hyperparameters ($\alpha = 0.001$, $\beta_1 = 0.9$, $\beta_2 = 0.999$). Compare loss values at every single iteration.
+        </div>
+
+        <div class="note" style="border-left-color: var(--accent-sage);">
+          <strong>Why:</strong> Before we trust any of our other experimental results, we need to prove that we actually implemented Algorithm 1 correctly. We checked PyTorchs source code on GitHub (<span class="mono">torch/optim/adam.py</span>) to confirm they implement the same version of the algorithm.
+        </div>
+
+        <div class="result-box" style="margin-top: 14px;">
+          <h3>Result</h3>
+          <p style="font-size: 0.95rem;">Over <strong>4,690 iterations</strong> (10 epochs &times; 469 batches):<br>
+          Max absolute loss difference = <span class="hl" style="font-family: 'JetBrains Mono', monospace;">$6.34 \times 10^{-7}$</span></p>
+          <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 8px;">The tiny difference comes from floating-point rounding between NumPy and PyTorch, not from an error in our code.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 8: EXPERIMENT 3 — ROSENBROCK
+     ============================================================ -->
+<section class="slide" id="s8">
+  <div class="slide-inner">
+    <span class="section-label">Part 3: Experiments</span>
+    <h1>Experiment 3: Rosenbrock Function</h1>
+    <p class="subtitle">Connecting to our coursework: the same test function from textbook Chapter 3</p>
+
+    <div class="two-col" style="grid-template-columns: 1fr 1fr;">
+      <div class="plot-stack">
+        <div>
+          <img src="images/split/plot3_contour.png" alt="Rosenbrock contour trajectories" class="plot-img">
+          <p class="plot-caption">Contour map with optimizer paths. Start: $(-1, 1)$. Target: $(1, 1)$.</p>
+        </div>
+        <div>
+          <img src="images/split/plot3_convergence.png" alt="Rosenbrock convergence" class="plot-img">
+          <p class="plot-caption">Function value vs iteration (lower is better; $f = 0$ at minimum).</p>
+        </div>
+      </div>
+      <div>
+        <div class="formula-box" style="margin-top: 0;">
+          <p style="margin-bottom: 8px;">$$f(x,y) = (1-x)^2 + 100(y-x^2)^2$$</p>
+          <p style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 0;">Long narrow curved valley. $\kappa \approx 2500$ near minimum.</p>
+        </div>
+
+        <div class="note" style="border-left-color: var(--accent-gold);">
+          <strong>Why we added this:</strong> This experiment is NOT from the Adam paper. We included it to connect back to our coursework. Adam was designed for stochastic optimization (noisy minibatch gradients), not deterministic functions where you have the exact gradient.
+        </div>
+
+        <table class="step-table" style="margin-top: 14px;">
+          <thead><tr><th>Optimizer</th><th>Final $f$ value</th></tr></thead>
+          <tbody>
+            <tr><td>SGD</td><td class="rose">1.47</td></tr>
+            <tr><td>SGD + Momentum</td><td class="hl">0.00007</td></tr>
+            <tr><td>AdaGrad</td><td class="hl">0.000002</td></tr>
+            <tr><td>RMSProp</td><td>0.15</td></tr>
+            <tr><td>Adam</td><td>0.043</td></tr>
+          </tbody>
+        </table>
+
+        <div class="result-box" style="margin-top: 14px;">
+          <h3>Key Finding</h3>
+          <p style="font-size: 0.88rem;">Momentum and AdaGrad beat Adam here. Makes sense: Adam was built for noisy gradients, and Rosenbrock gives exact gradients. Plain SGD barely moved (f=1.47), matching the class prediction that steepest descent struggles when $\kappa \approx 2500$ because $(\kappa-1)/(\kappa+1) \approx 0.999$.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 9: EXPERIMENT 4 — HYPERPARAMETERS
+     ============================================================ -->
+<section class="slide" id="s9">
+  <div class="slide-inner">
+    <span class="section-label">Part 3: Experiments</span>
+    <h1>Experiment 4: Hyperparameter Sensitivity</h1>
+    <p class="subtitle">Section 6.4 of the paper: which settings matter most?</p>
+
+    <div class="two-col" style="grid-template-columns: 1fr 1fr;">
+      <div class="plot-stack">
+        <div>
+          <img src="images/split/plot4_alpha.png" alt="Varying learning rate alpha" class="plot-img">
+          <p class="plot-caption">Varying $\alpha$ (step-size): curves spread far apart. <strong class="warm">HIGH impact.</strong></p>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div>
+            <img src="images/split/plot4_beta1.png" alt="Varying beta1" class="plot-img">
+            <p class="plot-caption">Varying $\beta_1$: tight cluster. <span class="hl">Low impact.</span></p>
+          </div>
+          <div>
+            <img src="images/split/plot4_beta2.png" alt="Varying beta2" class="plot-img">
+            <p class="plot-caption">Varying $\beta_2$: tight cluster. <span class="hl">Low impact.</span></p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="note" style="margin-top: 0;">
+          <strong>Setup:</strong> Vary $\alpha$ (step-size), $\beta_1$ (momentum decay), and $\beta_2$ (scale decay) one at a time while keeping the others at their paper defaults. Train logistic regression on MNIST for 20 epochs.
+        </div>
+
+        <h3 style="color: var(--accent-warm); margin-top: 16px;">What We Found</h3>
+
+        <table class="step-table">
+          <thead><tr><th>Parameter</th><th>Range Tested</th><th>Loss Range</th><th>Impact</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="warm">$\alpha$ (step-size)</td>
+              <td>0.0001 to 0.005</td>
+              <td>0.209 to 0.267</td>
+              <td class="warm">HIGH</td>
+            </tr>
+            <tr>
+              <td>$\beta_1$ (momentum)</td>
+              <td>0.0 to 0.99</td>
+              <td>0.210 to 0.215</td>
+              <td class="hl">LOW</td>
+            </tr>
+            <tr>
+              <td>$\beta_2$ (scale)</td>
+              <td>0.9 to 0.9999</td>
+              <td>0.215 to 0.223</td>
+              <td class="hl">LOW</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="result-box" style="margin-top: 16px;">
+          <h3>Key Finding</h3>
+          <p style="font-size: 0.92rem;">$\alpha$ (step-size) is the one that matters. The $\beta$ values are robust across a wide range, just like the paper claims (Section 6.4). Best result: $\alpha = 0.005$ gave the lowest final loss of 0.209. This is good news: you really only have to tune one hyperparameter.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 10: EXPERIMENT 5 — MLP
+     ============================================================ -->
+<section class="slide" id="s10">
+  <div class="slide-inner">
+    <span class="section-label">Part 3: Experiments</span>
+    <h1>Experiment 5: Neural Network (MLP) on MNIST</h1>
+    <p class="subtitle">Section 6.2 of the paper: where Adam really shines</p>
+
+    <div class="two-col" style="grid-template-columns: 1fr 1fr;">
+      <div class="plot-stack">
+        <div>
+          <img src="images/split/plot5_linear.png" alt="MLP convergence, linear" class="plot-img">
+          <p class="plot-caption">MLP training loss vs epoch (linear scale). Adam drops fastest.</p>
+        </div>
+        <div>
+          <img src="images/split/plot5_log.png" alt="MLP convergence, log" class="plot-img">
+          <p class="plot-caption">Log scale: Adam and RMSProp clearly separate from SGD.</p>
+        </div>
+
+      </div>
+      <div>
+        <div class="note" style="margin-top: 0;">
+          <strong>Setup:</strong> 784 &rarr; 128 (ReLU) &rarr; 10 (softmax). Backprop from scratch. He init. 20 epochs, batch 128. <strong>Non-convex</strong>, 101,770 params (13x logistic).
+        </div>
+
+        <!-- MLP architecture SVG -->
+        <div style="text-align: center; margin: 10px 0;">
+          <svg viewBox="0 0 520 110" width="100%" xmlns="http://www.w3.org/2000/svg" style="max-height: 70px;">
+            <rect x="10" y="25" width="100" height="60" rx="6" fill="#25252e" stroke="#6b8fbd" stroke-width="1.5"/>
+            <text x="60" y="50" fill="#6b8fbd" font-size="12" font-weight="600" text-anchor="middle">Input</text>
+            <text x="60" y="70" fill="#a8a49c" font-size="11" text-anchor="middle">784 pixels</text>
+            <line x1="110" y1="55" x2="160" y2="55" stroke="#a8a49c" stroke-width="1.2" marker-end="url(#arrowGray)"/>
+            <text x="135" y="45" fill="#706c64" font-size="9" text-anchor="middle">W1, b1</text>
+            <rect x="160" y="25" width="100" height="60" rx="6" fill="#25252e" stroke="#9b89b6" stroke-width="1.5"/>
+            <text x="210" y="50" fill="#9b89b6" font-size="12" font-weight="600" text-anchor="middle">Hidden</text>
+            <text x="210" y="70" fill="#a8a49c" font-size="11" text-anchor="middle">128 (ReLU)</text>
+            <line x1="260" y1="55" x2="310" y2="55" stroke="#a8a49c" stroke-width="1.2" marker-end="url(#arrowGray)"/>
+            <text x="285" y="45" fill="#706c64" font-size="9" text-anchor="middle">W2, b2</text>
+            <rect x="310" y="25" width="100" height="60" rx="6" fill="#25252e" stroke="#6aab8e" stroke-width="1.5"/>
+            <text x="360" y="50" fill="#6aab8e" font-size="12" font-weight="600" text-anchor="middle">Output</text>
+            <text x="360" y="70" fill="#a8a49c" font-size="11" text-anchor="middle">10 (softmax)</text>
+            <text x="460" y="50" fill="#706c64" font-size="10" text-anchor="middle">101,770</text>
+            <text x="460" y="65" fill="#706c64" font-size="10" text-anchor="middle">params</text>
+            <line x1="410" y1="55" x2="435" y2="55" stroke="#3a3a46" stroke-width="1" stroke-dasharray="3,3"/>
+          </svg>
+        </div>
+
+        <table class="step-table">
+          <thead><tr><th>Optimizer</th><th>Test Accuracy</th><th>Gap vs SGD</th></tr></thead>
+          <tbody>
+            <tr><td>SGD</td><td>93.80%</td><td></td></tr>
+            <tr><td>SGD + Momentum</td><td>97.72%</td><td>+3.92</td></tr>
+            <tr><td>AdaGrad</td><td>97.34%</td><td>+3.54</td></tr>
+            <tr><td>RMSProp</td><td>97.92%</td><td>+4.12</td></tr>
+            <tr class="highlight"><td>Adam</td><td>97.97%</td><td>+4.17</td></tr>
+          </tbody>
+        </table>
+
+        <div class="result-box" style="margin-top: 10px;">
+          <h3>Key Finding</h3>
+          <p style="font-size: 0.85rem;">Adam 97.97% vs SGD 93.80% (4+ point gap). Much larger than the ~1 point gap on logistic regression. RMSProp close at 97.92% (Adam = RMSProp + momentum + bias correction). Non-convex + more params = adaptive step sizes matter.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 11: COURSE CONNECTION
+     ============================================================ -->
+<section class="slide" id="s11">
+  <div class="slide-inner">
+    <span class="section-label">Wrap-Up</span>
+    <h1>How Adam Connects to This Course</h1>
+    <p class="subtitle">The evolution of step-size strategies we studied in MATH 3850</p>
+
+    <!-- Three-column comparison SVG -->
+    <div class="three-col" style="margin-top: 12px;">
+      <div class="col-card">
+        <h3 style="color: var(--accent-blue);">Gradient Descent</h3>
+        <p style="color: var(--text-muted); font-size: 0.82rem; margin-bottom: 10px;">Nocedal &amp; Wright, Chapter 3</p>
+        <div class="formula-box" style="margin: 10px 0; padding: 14px 16px;">
+          $$x_{k+1} = x_k - \alpha \nabla f(x_k)$$
+        </div>
+        <dl class="breakdown" style="font-size: 0.85rem;">
+          <dt>Step-size</dt><dd>One $\alpha$ (step-size) for everything, or found via line search</dd>
+          <dt>Curvature</dt><dd>Ignores curvature entirely</dd>
+          <dt>Memory</dt><dd>$O(n)$</dd>
+        </dl>
+      </div>
+
+      <div class="col-card">
+        <h3 style="color: var(--accent-lilac);">BFGS</h3>
+        <p style="color: var(--text-muted); font-size: 0.82rem; margin-bottom: 10px;">Nocedal &amp; Wright, Chapter 6</p>
+        <div class="formula-box" style="margin: 10px 0; padding: 14px 16px;">
+          $$x_{k+1} = x_k - \alpha_k H_k^{-1} \nabla f(x_k)$$
+        </div>
+        <dl class="breakdown" style="font-size: 0.85rem;">
+          <dt>Step-size</dt><dd>$H_k^{-1}$ (inverse Hessian approximation) scales the gradient</dd>
+          <dt>Curvature</dt><dd>Full $n \times n$ matrix of curvature info</dd>
+          <dt>Memory</dt><dd>$O(n^2)$</dd>
+        </dl>
+      </div>
+
+      <div class="col-card" style="border-color: var(--accent-warm);">
+        <h3 style="color: var(--accent-warm);">Adam</h3>
+        <p style="color: var(--text-muted); font-size: 0.82rem; margin-bottom: 10px;">Kingma &amp; Ba, 2015</p>
+        <div class="formula-box" style="margin: 10px 0; padding: 14px 16px;">
+          $$\theta_t = \theta_{t-1} - \alpha \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon}$$
+        </div>
+        <dl class="breakdown" style="font-size: 0.85rem;">
+          <dt>Step-size</dt><dd>$\hat{m}_t / \sqrt{\hat{v}_t}$ gives per-parameter adaptive scaling</dd>
+          <dt>Curvature</dt><dd>Diagonal approximation from gradient history</dd>
+          <dt>Memory</dt><dd>$O(n)$</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="why-box" style="margin-top: 20px;">
+      <h3>The Deep Connection</h3>
+      <p>All three methods are doing the same thing: using gradient history to take smarter steps. GD uses just the raw gradient. BFGS builds a full curvature matrix for perfect scaling but needs $O(n^2)$ memory. Adam takes the same concept of "scale the gradient smartly" but uses a diagonal approximation ($\hat{m}_t / \sqrt{\hat{v}_t}$) that only needs $O(n)$ memory. Its like a practical compromise between the simplicity of GD and the intelligence of BFGS, designed for the noisy, high-dimensional world of machine learning.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 12: SUMMARY
+     ============================================================ -->
+<section class="slide title-slide" id="s12">
+  <div class="slide-inner">
+    <h1 style="font-size: 2.2rem;">Summary</h1>
+    <p class="subtitle" style="margin-bottom: 28px;">What we found across five experiments</p>
+
+    <div style="text-align: left; max-width: 700px; margin: 0 auto;">
+      <div class="note" style="border-left-color: var(--accent-sage); margin-bottom: 12px;">
+        <strong class="hl">1.</strong>&ensp;All adaptive methods beat plain SGD on MNIST, matching the papers trends (Section 6.1).
+      </div>
+      <div class="note" style="border-left-color: var(--accent-sage); margin-bottom: 12px;">
+        <strong class="hl">2.</strong>&ensp;Our implementation is correct: max diff vs PyTorch = $6.34 \times 10^{-7}$ over 4,690 iterations.
+      </div>
+      <div class="note" style="border-left-color: var(--accent-gold); margin-bottom: 12px;">
+        <strong class="gold">3.</strong>&ensp;Adam struggles on deterministic problems (Rosenbrock), confirming it was built for noisy gradients.
+      </div>
+      <div class="note" style="border-left-color: var(--accent-sage); margin-bottom: 12px;">
+        <strong class="hl">4.</strong>&ensp;$\alpha$ (step-size) is the only hyperparameter that really matters. $\beta_1$ and $\beta_2$ are robust.
+      </div>
+      <div class="note" style="border-left-color: var(--accent-warm); margin-bottom: 12px;">
+        <strong class="warm">5.</strong>&ensp;Adam shines on non-convex problems: 97.97% on MLP vs 93.80% SGD (4+ point gap).
+      </div>
+    </div>
+
+    <div style="margin-top: 32px;">
+      <p style="color: var(--text-muted); font-size: 0.88rem;">
+        <strong style="color: var(--text-secondary);">References:</strong>
+        Kingma &amp; Ba (2015), "Adam: A Method for Stochastic Optimization," ICLR.
+        &middot; Ruder (2016), "An overview of gradient descent optimization algorithms."
+        &middot; Nocedal &amp; Wright, <em>Numerical Optimization</em>, 2nd ed.
+      </p>
+    </div>
+
+    <h2 style="text-align: center; border: none; margin-top: 28px; font-size: 1.5rem;">Questions?</h2>
+  </div>
+</section>
+
+<!-- ============================================================
+   NAVIGATION UI
+   ============================================================ -->
+<div class="progress-bar"><div class="progress-fill"></div></div>
+<div class="slide-counter"></div>
+<div class="nav-hint">&larr; &rarr; navigate</div>
+
+<script src="presentation.js"></script>
+</body>
+</html>
