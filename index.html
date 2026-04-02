@@ -48,12 +48,12 @@
     <div class="two-col">
       <div>
         <h2 class="mt-0">Problem 1: One Step-Size for All</h2>
-        <p>In gradient descent, we use a single $\alpha$ (step-size) for every parameter. If the landscape is stretched out in one direction (high $\kappa$ (condition number)), GD zigzags back and forth across the narrow direction and barely makes progress along the wide direction.</p>
+        <p>In gradient descent, we use a single $\alpha$ for every parameter. If the landscape is stretched out in one direction (high $\kappa$), GD zigzags back and forth across the narrow direction and barely makes progress along the wide direction.</p>
         <p>From class (Theorem 3.4): the convergence rate of steepest descent is $\frac{\kappa - 1}{\kappa + 1}$. If $\kappa = 2500$, thats $\frac{2499}{2501} \approx 0.999$, meaning each step only reduces the error by 0.1%.</p>
       </div>
       <div>
         <h2 class="mt-0">Problem 2: Noisy Gradients</h2>
-        <p>In machine learning we dont compute the gradient on ALL the data. We use a small random minibatch (128 samples out of 60,000), so $g_t$ (the gradient estimate) is noisy. That makes the zigzag even worse.</p>
+        <p>In machine learning we dont compute the gradient on ALL the data. We use a small random minibatch (128 samples out of 60,000), so $g_t$ is noisy. That makes the zigzag even worse.</p>
         <p>Methods like Newtons method and BFGS from class dont work here because they need exact gradients and store an $n \times n$ matrix ($O(n^2)$ memory), which is impossible with millions of parameters.</p>
       </div>
     </div>
@@ -182,7 +182,7 @@
     </div>
 
     <div class="note" style="margin-top: 16px;">
-      <strong>Bias correction:</strong> Both $m_t$ (momentum) and $v_t$ (scale) start at zero, so early estimates are too small. Adam corrects this:
+      <strong>Bias correction:</strong> Both $m_t$ and $v_t$ start at zero, so early estimates are too small. Adam corrects this:
       $\hat{m}_t = m_t \,/\, (1 - \beta_1^t)$ and $\hat{v}_t = v_t \,/\, (1 - \beta_2^t)$.
       The correction vanishes as $t$ grows large.
     </div>
@@ -262,7 +262,7 @@
 
         <div class="why-box" style="margin-top: 20px;">
           <h3>Why This Works</h3>
-          <p style="font-size: 0.92rem;">Line 8 is the key: $\hat{m}_t$ (bias-corrected momentum) tells us the direction. $\sqrt{\hat{v}_t}$ (root of bias-corrected scale) normalizes by magnitude. The ratio $\hat{m}_t / \sqrt{\hat{v}_t}$ gives each parameter its own effective step size. The paper shows each step is approximately bounded by $\alpha$ (step-size), which is the trust region property.</p>
+          <p style="font-size: 0.92rem;">Line 8 is the key: $\hat{m}_t$ tells us the direction. $\sqrt{\hat{v}_t}$ normalizes by magnitude. The ratio $\hat{m}_t / \sqrt{\hat{v}_t}$ gives each parameter its own effective step size. The paper shows each step is approximately bounded by $\alpha$, which is the trust region property.</p>
         </div>
       </div>
     </div>
@@ -335,7 +335,7 @@
 
     <div class="why-box">
       <h3>The Key Insight</h3>
-      <p>The gradient gets split into two separate streams of information: $\hat{m}_t$ (corrected momentum) captures the <strong>direction</strong> to go, and $\sqrt{\hat{v}_t}$ (root of corrected scale) captures the <strong>magnitude</strong> to normalize by. When we divide direction by magnitude, each parameter gets its own appropriately-sized step. This is analogous to what BFGS does with the inverse Hessian $H_k^{-1}$, but Adam does it with just $O(n)$ memory instead of $O(n^2)$.</p>
+      <p>The gradient gets split into two separate streams of information: $\hat{m}_t$ captures the <strong>direction</strong> to go, and $\sqrt{\hat{v}_t}$ captures the <strong>magnitude</strong> to normalize by. When we divide direction by magnitude, each parameter gets its own appropriately-sized step. This is analogous to what BFGS does with the inverse Hessian $H_k^{-1}$, but Adam does it with just $O(n)$ memory instead of $O(n^2)$.</p>
     </div>
   </div>
 </section>
@@ -557,7 +557,7 @@
       <div class="plot-stack">
         <div>
           <img src="images/split/plot4_alpha.png" alt="Varying learning rate alpha" class="plot-img">
-          <p class="plot-caption">Varying $\alpha$ (step-size): curves spread far apart. <strong class="warm">HIGH impact.</strong></p>
+          <p class="plot-caption">Varying $\alpha$: curves spread far apart. <strong class="warm">HIGH impact.</strong></p>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
           <div>
@@ -572,7 +572,7 @@
       </div>
       <div>
         <div class="note" style="margin-top: 0;">
-          <strong>Setup:</strong> Vary $\alpha$ (step-size), $\beta_1$ (momentum decay), and $\beta_2$ (scale decay) one at a time while keeping the others at their paper defaults. Train logistic regression on MNIST for 20 epochs.
+          <strong>Setup:</strong> Vary $\alpha$, $\beta_1$, and $\beta_2$ one at a time while keeping the others at their paper defaults. Train logistic regression on MNIST for 20 epochs.
         </div>
 
         <h3 style="color: var(--accent-warm); margin-top: 16px;">What We Found</h3>
@@ -581,7 +581,7 @@
           <thead><tr><th>Parameter</th><th>Range Tested</th><th>Loss Range</th><th>Impact</th></tr></thead>
           <tbody>
             <tr>
-              <td class="warm">$\alpha$ (step-size)</td>
+              <td class="warm">$\alpha$</td>
               <td>0.0001 to 0.005</td>
               <td>0.209 to 0.267</td>
               <td class="warm">HIGH</td>
@@ -603,7 +603,7 @@
 
         <div class="result-box" style="margin-top: 16px;">
           <h3>Key Finding</h3>
-          <p style="font-size: 0.92rem;">$\alpha$ (step-size) is the one that matters. The $\beta$ values are robust across a wide range, just like the paper claims (Section 6.4). Best result: $\alpha = 0.005$ gave the lowest final loss of 0.209. This is good news: you really only have to tune one hyperparameter.</p>
+          <p style="font-size: 0.92rem;">$\alpha$ is the one that matters. The $\beta$ values are robust across a wide range, just like the paper claims (Section 6.4). Best result: $\alpha = 0.005$ gave the lowest final loss of 0.209. This is good news: you really only have to tune one hyperparameter.</p>
         </div>
       </div>
     </div>
@@ -755,7 +755,7 @@
         <strong class="gold">3.</strong>&ensp;Adam struggles on deterministic problems (Rosenbrock), confirming it was built for noisy gradients.
       </div>
       <div class="note" style="border-left-color: var(--accent-sage); margin-bottom: 12px;">
-        <strong class="hl">4.</strong>&ensp;$\alpha$ (step-size) is the only hyperparameter that really matters. $\beta_1$ and $\beta_2$ are robust.
+        <strong class="hl">4.</strong>&ensp;$\alpha$ is the only hyperparameter that really matters. $\beta_1$ and $\beta_2$ are robust.
       </div>
       <div class="note" style="border-left-color: var(--accent-warm); margin-bottom: 12px;">
         <strong class="warm">5.</strong>&ensp;Adam shines on non-convex problems: 97.97% on MLP vs 93.80% SGD (4+ point gap).
